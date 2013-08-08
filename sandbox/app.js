@@ -14,7 +14,7 @@
             $rootScope.state = {};
             $rootScope.l20nId = 'objectsWithCount';
 
-            documentL10n.addEventListener('ready', function () {
+            documentL10n.ready(function () {
                 l20n.init();
 
                 // TODO get this from server

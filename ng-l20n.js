@@ -88,7 +88,9 @@
              * be evaluated, use (data-|)l20n (see in l20n directive comments for reasons).
              */
             return function (scope, element) {
-                documentL10n.localizeNode(element[0]);
+                documentL10n.ready(function () {
+                    documentL10n.localizeNode(element[0]);
+                });
             };
         });
 
