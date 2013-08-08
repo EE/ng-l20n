@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html class="no-js" ng-app="testApp" lang="{{ locale }}">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Test app</title>
+    <link rel="localization" href="locales/l20n.json">
+</head>
+
+<body>
+<p data-l20n="library"></p>
+
+<p data-l20n="{{ l20nId }}"></p>
+
+<a href="#" ng-show="locale !== 'pl'" ng-click="changeLocale('pl')">Wersja polska</a>
+<a href="#" ng-show="locale !== 'en-US'" ng-click="changeLocale('en-US')">English version</a>
+
+<script src="../vendor/l20n.js"></script>
+<script src="../vendor/angular.js"></script>
+<script src="../vendor/ng-storage.js"></script>
+
+<script src="app.js"></script>
+<script src="../ng-l20n.js"></script>
+</body>
+</html>
+

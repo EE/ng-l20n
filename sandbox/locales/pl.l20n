@@ -1,0 +1,15 @@
+<plural($n) {
+    $n == 0 ? 'zero' :
+    $n % 10 == 1 && $n % 100 != 11 ? 'one' :
+    $n % 10 >= 2 && $n % 10 <= 4 && ($n % 100 < 10 || $n % 100 >= 20) ? 'few' :
+    'many'
+}>
+
+<objectsWithCount[plural($search.objectsNum)] {
+    zero: "brak obiektów",
+    one: "jeden obiekt",
+    few: "{{ $search.objectsNum }} obiekty",
+    many: "{{ $search.objectsNum }} obiektów",
+}>
+
+<library "biblioteka">

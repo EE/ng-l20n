@@ -1,0 +1,13 @@
+<plural($n) {
+    $n == 0 ? "zero" :
+    $n == 1 ? "one" :
+              "many"
+}>
+
+<objectsWithCount[plural($search.objectsNum)] {
+    zero: "no objects",
+    one: "1 object",
+    many: "{{ $search.objectsNum }} objects",
+}>
+
+<library "library">
