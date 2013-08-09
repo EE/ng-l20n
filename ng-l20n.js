@@ -21,7 +21,7 @@
                     context.registerLocales.apply(context, this.allLocales);
 
                     context.linkResource(function (locale) {
-                        return '/sandbox/locales/' + locale + '.l20n';
+                        return '/locales/' + locale + '.l20n';
                     });
 
                     $rootScope.changeLocale = function changeLocale(newLocale) {
