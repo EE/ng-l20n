@@ -10,7 +10,7 @@
 
     angular.module('ngL20n', [])
 
-        .factory('l20n', function ($rootScope) {
+        .factory('l20n', ['$rootScope', function ($rootScope) {
             var l20n = {
                 init: function init() {
                     var context;
@@ -90,9 +90,9 @@
 
             l20n.init();
             return l20n;
-        })
+        }])
 
-        .directive('l20n', function (l20n) {
+        .directive('l20n', ['l20n', function (l20n) {
             /**
              * Translates the node.
              */
@@ -108,6 +108,6 @@
                     updateTranslation();
                 });
             };
-        });
+        }]);
 
 })();
