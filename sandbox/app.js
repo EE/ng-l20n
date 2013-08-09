@@ -14,16 +14,10 @@
             $rootScope.data = {objectsNum: 102};
             $rootScope.l20nId = 'objectsWithCount';
 
-            l20n.init();
-
             function setObjectsNum(number) {
-                l20n.context.updateData({
+                l20n.updateData({
                     objectsNum: number,
                 });
-
-                var event = document.createEvent('HTMLEvents');
-                event.initEvent('l20n:dataupdated', true, true);
-                document.dispatchEvent(event);
             }
 
             $rootScope.$watch('data.objectsNum', function (newValue) {

@@ -11,7 +11,7 @@
     angular.module('ngL20n', [])
 
         .factory('l20n', function ($rootScope) {
-            return {
+            var l20n = {
                 init: function init() {
                     var context;
 
@@ -76,7 +76,20 @@
                     // No match, just use the first available locale from the list.
                     return this.allLocales[0];
                 },
+
+                updateData: function updateData() {
+                    var event,
+                        context = this.context;
+
+                    context.updateData.apply(context, arguments);
+                    event = document.createEvent('HTMLEvents');
+                    event.initEvent('l20n:dataupdated', true, true);
+                    document.dispatchEvent(event);
+                },
             };
+
+            l20n.init();
+            return l20n;
         })
 
         .directive('l20n', function (l20n) {
