@@ -87,12 +87,13 @@
                 var context = l20n.context;
 
                 function updateTranslation() {
-                    console.log(attrs.l20n, context.get(attrs.l20n));
                     element.text(context.get(attrs.l20n));
                 }
 
-                context.ready(updateTranslation);
-                $(document).on('l20n:dataupdated', updateTranslation);
+                context.ready(function () {
+                    $(document).on('l20n:dataupdated', updateTranslation);
+                    updateTranslation();
+                });
             };
         });
 
