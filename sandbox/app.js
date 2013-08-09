@@ -20,7 +20,10 @@
                 l20n.context.updateData({
                     objectsNum: number,
                 });
-                $(document).trigger('l20n:dataupdated');
+
+                var event = document.createEvent('HTMLEvents');
+                event.initEvent('l20n:dataupdated', true, true);
+                document.dispatchEvent(event);
             }
 
             $rootScope.$watch('data.objectsNum', function (newValue) {

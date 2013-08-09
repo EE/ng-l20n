@@ -91,7 +91,7 @@
                 }
 
                 context.ready(function () {
-                    $(document).on('l20n:dataupdated', updateTranslation);
+                    document.addEventListener('l20n:dataupdated', updateTranslation);
                     updateTranslation();
                 });
             };
