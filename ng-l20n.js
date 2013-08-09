@@ -50,7 +50,7 @@
                         }
                     }
                     // No match, just use the first available locale from the list.
-                    return this.all[0];
+                    return this.allLocales[0];
                 },
 
                 updateData: function updateData(data) {
