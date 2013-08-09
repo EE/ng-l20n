@@ -24,11 +24,11 @@
             }
 
             $rootScope.$watch('data.objectsNum', function (newValue) {
-                setObjectsNum(newValue);
+                setObjectsNum(parseInt(newValue, 10) || 0);
             });
 
             l20n.context.ready(function () {
-                setObjectsNum($rootScope.data.objectsNum);
+                setObjectsNum(parseInt($rootScope.data.objectsNum, 10) || 0);
             });
         });
 })();
