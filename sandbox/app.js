@@ -10,19 +10,25 @@
     'use strict';
 
     angular.module('testApp', ['ngL20n'])
-        .run(function ($rootScope, documentL10n, l20n) {
-            $rootScope.state = {};
+        .run(function ($rootScope, l20n) {
+            $rootScope.data = {objectsNum: 102};
             $rootScope.l20nId = 'objectsWithCount';
 
-            documentL10n.ready(function () {
-                l20n.init();
+            l20n.init();
 
-                // TODO get this from server
-                l20n.updateData({
-                    search: {
-                        objectsNum: 43089,
-                    },
+            function setObjectsNum(number) {
+                l20n.context.updateData({
+                    objectsNum: number,
                 });
+                $(document).trigger('l20n:dataupdated');
+            }
+
+            $rootScope.$watch('data.objectsNum', function (newValue) {
+                setObjectsNum(newValue);
+            });
+
+            l20n.context.ready(function () {
+                setObjectsNum($rootScope.data.objectsNum);
             });
         });
 })();

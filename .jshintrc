@@ -14,7 +14,6 @@
     "undef": true,
     "unused": true,
 
-    "esnext": true,
     "browser": true,
     "devel": true,
     "jquery": true,
@@ -26,20 +25,9 @@
 
     "globals": {
         "angular": false,
-        "requestAnimationFrame": false,
+        "L20n": false,
         "_": false,
-        "Modernizr": false,
-        "_gaq": false,
 
-        "KEY_CODES": false,
-        "STATIC_URL": false,
-        "VIEWED_FROM_LIBRARY": false,
-        "SHARE_FORM": false,
-        "DEBUG": false,
-        "FLAT_PAGES": false,
-        "FRONT_PAGE_BACKGROUNDS": false,
-
-        "app": false,
-        "Seadragon": false
+        "app": false
     }
 }

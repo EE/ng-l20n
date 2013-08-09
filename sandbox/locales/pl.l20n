@@ -5,11 +5,11 @@
     'many'
 }>
 
-<objectsWithCount[plural($search.objectsNum)] {
+<objectsWithCount[plural($objectsNum)] {
     zero: "brak obiektów",
     one: "jeden obiekt",
-    few: "{{ $search.objectsNum }} obiekty",
-    many: "{{ $search.objectsNum }} obiektów",
+    few: "{{ $objectsNum }} obiekty",
+    many: "{{ $objectsNum }} obiektów",
 }>
 
-<library "biblioteka">
+<setObjectsNumber "Ustaw liczbę obiektów">

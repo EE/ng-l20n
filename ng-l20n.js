@@ -8,30 +8,54 @@
 (function () {
     'use strict';
 
-    angular.module('ngL20n', ['ngStorage'])
+    angular.module('ngL20n', [])
 
-        .factory('l20n', function ($localStorage, $rootScope, documentL10n) {
+        .factory('l20n', function ($rootScope) {
             return {
                 init: function init() {
-                    if (!$localStorage.locale) {
-                        // First visit to the site, set the default locale in localStorage.
-                        $localStorage.locale = this.defaultLocale;
-                    }
-                    $rootScope.locale = $localStorage.locale;
+                    var context;
 
-                    // Dynamically change the site locale based on $rootScope.locale changes.
-                    $rootScope.$watch('locale', function (newLocale) {
-                        $localStorage.locale = newLocale;
-                        documentL10n.registerLocales(newLocale);
+                    context = this.context = L20n.getContext();
+
+                    // Register all available locales first.
+                    context.registerLocales.apply(context, this.allLocales);
+
+                    context.linkResource(function (locale) {
+                        return '/sandbox/locales/' + locale + '.l20n';
                     });
 
                     $rootScope.changeLocale = function changeLocale(newLocale) {
+                        // The main function for changing a locale. Everything gets triggered by changes
+                        // made in this function.
                         $rootScope.locale = newLocale;
                     };
+
+                    if (!localStorage.getItem('locale')) {
+                        // First visit to the site, set the default locale in localStorage.
+                        localStorage.setItem('locale', this.defaultLocale);
+                    }
+                    // Dynamically change the site locale based on $rootScope.locale changes.
+                    context.addEventListener('ready', function onReady() {
+                        context.removeEventListener('ready', onReady);
+
+                        // Make sure a locale is registered at least once.
+                        context.registerLocales($rootScope.locale);
+
+                        $rootScope.$watch('locale', function (newLocale) {
+                            if (newLocale) { // it might be undefined
+                                localStorage.setItem('locale', newLocale);
+                                context.registerLocales(newLocale);
+                            }
+                        });
+                    });
+
+                    $rootScope.locale = localStorage.getItem('locale');
+
+                    context.freeze();
                 },
 
                 // Available locales in order of preference.
-                // TODO get it from locales/l20n.json
+                // TODO get it from a configuration file
                 allLocales: ['en-US', 'pl'],
 
                 get defaultLocale() {
@@ -52,45 +76,23 @@
                     // No match, just use the first available locale from the list.
                     return this.allLocales[0];
                 },
-
-                updateData: function updateData(data) {
-                    // TODO remove it when L20n gets fixed.
-                    documentL10n.updateData(data);
-                    documentL10n.freeze(); // TODO maybe sub-optimal
-                },
             };
         })
 
-        .value('documentL10n', document.l10n) // it's provided as value to be easily mocked in tests
-
-        .directive('l20n', function ($compile) {
+        .directive('l20n', function (l20n) {
             /**
-             * Since the attribute data-l10n-id could hold not the localization id itself but a string
-             * to be evaluated and l20n doesn't place nice with it, we need to pre-evaluate the attribute
-             * and pass it to the data-l10n-id attribute later. The data-l10n-id attribute is, in turn,
-             * processed by the l10nId directive.
+             * Translates the node.
              */
             return function (scope, element, attrs) {
-                // Prepare for the l10nId directive.
-                element.attr('data-l10n-id', attrs.l20n);
-                // Prevent re-running this directive on $compile.
-                element.removeAttr('l20n');
-                element.removeAttr('data-l20n');
-                // Compile to be parsed to the l10nId directive.
-                $compile(element)(scope);
-            };
-        })
+                var context = l20n.context;
 
-        .directive('l10nId', function (documentL10n) {
-            /**
-             * A hook for l20n library. All elements with a data-l10n-id attribute are processed by l20n.
-             * Note: don't use this directive directly for anything other simple strings that don't need to
-             * be evaluated, use (data-|)l20n (see in l20n directive comments for reasons).
-             */
-            return function (scope, element) {
-                documentL10n.ready(function () {
-                    documentL10n.localizeNode(element[0]);
-                });
+                function updateTranslation() {
+                    console.log(attrs.l20n, context.get(attrs.l20n));
+                    element.text(context.get(attrs.l20n));
+                }
+
+                context.ready(updateTranslation);
+                $(document).on('l20n:dataupdated', updateTranslation);
             };
         });
 
