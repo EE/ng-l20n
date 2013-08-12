@@ -100,7 +100,13 @@
                 var context = l20n.context;
 
                 function updateTranslation() {
-                    element.text(context.get(attrs.l20n));
+                    var key,
+                        entity = context.getEntity(attrs.l20n);
+
+                    element.text(entity.value);
+                    for (key in entity.attributes) {
+                        element.attr(key, entity.attributes[key]);
+                    }
                 }
 
                 context.ready(function () {
