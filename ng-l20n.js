@@ -23,10 +23,11 @@
                         // First visit to the site, set the default locale in localStorage.
                         localStorage.setItem('locale', this.defaultLocale);
                     }
-                    // Dynamically change the site locale based on $rootScope.locale changes.
-                    documentL10n.addEventListener('ready', function onReady() {
-                        documentL10n.removeEventListener('ready', onReady);
 
+                    $rootScope.locale = localStorage.getItem('locale');
+
+                    // Dynamically change the site locale based on $rootScope.locale changes.
+                    documentL10n.once(function () {
                         // Make sure a locale is registered at least once.
                         documentL10n.registerLocales($rootScope.locale);
 
@@ -37,8 +38,6 @@
                             }
                         });
                     });
-
-                    $rootScope.locale = localStorage.getItem('locale');
                 },
 
                 // Available locales in order of preference.
