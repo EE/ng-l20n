@@ -114,7 +114,7 @@
                     documentL10n.localizeNode(element[0]);
                 }
 
-                documentL10n.ready(function () {
+                documentL10n.once(function () {
                     document.addEventListener('l20n:dataupdated', updateTranslation);
                     updateTranslation();
                 });
