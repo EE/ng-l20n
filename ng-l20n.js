@@ -13,13 +13,6 @@
         .factory('l20n', ['$rootScope', 'documentL10n', function ($rootScope, documentL10n) {
             var l20n = {
                 init: function init() {
-                    // Register all available locales first.
-                    documentL10n.registerLocales.apply(documentL10n, this.allLocales);
-
-                    documentL10n.linkResource(function (locale) {
-                        return '/locales/' + locale + '.l20n';
-                    });
-
                     $rootScope.changeLocale = function changeLocale(newLocale) {
                         // The main function for changing a locale. Everything gets triggered by changes
                         // made in this function.
@@ -46,12 +39,10 @@
                     });
 
                     $rootScope.locale = localStorage.getItem('locale');
-
-                    documentL10n.freeze();
                 },
 
                 // Available locales in order of preference.
-                // TODO get it from a configuration file
+                // TODO get it from the manifest file
                 allLocales: ['en-US', 'pl'],
 
                 get defaultLocale() {
