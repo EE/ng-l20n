@@ -10,17 +10,13 @@
 
     angular.module('ngL20n', [])
 
-        .factory('l20n', ['$rootScope', function ($rootScope) {
+        .factory('l20n', ['$rootScope', 'documentL10n', function ($rootScope, documentL10n) {
             var l20n = {
                 init: function init() {
-                    var context;
-
-                    context = this.context = L20n.getContext();
-
                     // Register all available locales first.
-                    context.registerLocales.apply(context, this.allLocales);
+                    documentL10n.registerLocales.apply(documentL10n, this.allLocales);
 
-                    context.linkResource(function (locale) {
+                    documentL10n.linkResource(function (locale) {
                         return '/locales/' + locale + '.l20n';
                     });
 
@@ -35,23 +31,23 @@
                         localStorage.setItem('locale', this.defaultLocale);
                     }
                     // Dynamically change the site locale based on $rootScope.locale changes.
-                    context.addEventListener('ready', function onReady() {
-                        context.removeEventListener('ready', onReady);
+                    documentL10n.addEventListener('ready', function onReady() {
+                        documentL10n.removeEventListener('ready', onReady);
 
                         // Make sure a locale is registered at least once.
-                        context.registerLocales($rootScope.locale);
+                        documentL10n.registerLocales($rootScope.locale);
 
                         $rootScope.$watch('locale', function (newLocale) {
                             if (newLocale) { // it might be undefined
                                 localStorage.setItem('locale', newLocale);
-                                context.registerLocales(newLocale);
+                                documentL10n.registerLocales(newLocale);
                             }
                         });
                     });
 
                     $rootScope.locale = localStorage.getItem('locale');
 
-                    context.freeze();
+                    documentL10n.freeze();
                 },
 
                 // Available locales in order of preference.
@@ -59,16 +55,23 @@
                 allLocales: ['en-US', 'pl'],
 
                 get defaultLocale() {
+                    var firstMatchingLocale, i,
+                        navigatorLanguage = navigator.language;
+
                     // Returns a default locale that is presented to the user when they first visit the site.
-                    if (this.allLocales.indexOf(navigator.language) !== -1) {
+                    if (this.allLocales.indexOf(navigatorLanguage) !== -1) {
                         // The browser locale is available, use it.
-                        return navigator.language;
+                        return navigatorLanguage;
                     } else {
                         // In the absence of an exact match, check if navigator.language is a substring
                         // of one of provided locales.
-                        var firstMatchingLocale = _.filter(this.all, function (locale) {
-                            return locale.indexOf(navigator.language) !== -1;
-                        })[0];
+                        for (i = 0; i < this.allLocales.length; i++) {
+                            firstMatchingLocale = this.allLocales[i];
+                            if (firstMatchingLocale.indexOf(navigatorLanguage) !== -1) {
+                                // We got the first matching locale.
+                                break;
+                            }
+                        }
                         if (firstMatchingLocale) {
                             return firstMatchingLocale;
                         }
@@ -78,10 +81,10 @@
                 },
 
                 updateData: function updateData() {
-                    var event,
-                        context = this.context;
+                    var event;
 
-                    context.updateData.apply(context, arguments);
+                    documentL10n.updateData.apply(documentL10n, arguments);
+
                     event = document.createEvent('HTMLEvents');
                     event.initEvent('l20n:dataupdated', true, true);
                     document.dispatchEvent(event);
@@ -92,28 +95,42 @@
             return l20n;
         }])
 
-        .directive('l20n', ['l20n', function (l20n) {
+        .directive('l20n', ['$compile', function ($compile) {
             /**
-             * Translates the node.
+             * Since the attribute data-l10n-id could hold not the localization id itself but a string
+             * to be evaluated and l20n doesn't place nice with it, we need to pre-evaluate the attribute
+             * and pass it to the data-l10n-id attribute later. The data-l10n-id attribute is, in turn,
+             * processed by the l10nId directive.
              */
             return function (scope, element, attrs) {
-                var context = l20n.context;
+                // Prepare for the l10nId directive.
+                element.attr('data-l10n-id', attrs.l20n);
+                // Prevent re-running this directive on $compile.
+                element.removeAttr('l20n');
+                element.removeAttr('data-l20n');
+                // Compile to be parsed by the l10nId directive link code.
+                $compile(element)(scope);
+            };
+        }])
 
+        .directive('l10nId', ['documentL10n', function (documentL10n) {
+            /**
+             * A hook for l20n library. All elements with a data-l10n-id attribute are processed by l20n.
+             * Note: don't use this directive directly for anything other simple strings that don't need to
+             * be evaluated, use (data-|)l20n (see in l20n directive comments for reasons).
+             */
+            return function (scope, element) {
                 function updateTranslation() {
-                    var key,
-                        entity = context.getEntity(attrs.l20n);
-
-                    element.text(entity.value);
-                    for (key in entity.attributes) {
-                        element.attr(key, entity.attributes[key]);
-                    }
+                    documentL10n.localizeNode(element[0]);
                 }
 
-                context.ready(function () {
+                documentL10n.ready(function () {
                     document.addEventListener('l20n:dataupdated', updateTranslation);
                     updateTranslation();
                 });
             };
-        }]);
+        }])
+
+        .value('documentL10n', document.l10n); // it's provided as value to be easily mocked in tests
 
 })();

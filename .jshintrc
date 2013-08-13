@@ -26,7 +26,6 @@
     "globals": {
         "angular": false,
         "L20n": false,
-        "_": false,
 
         "app": false
     }

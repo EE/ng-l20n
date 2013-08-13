@@ -10,7 +10,7 @@
     'use strict';
 
     angular.module('testApp', ['ngL20n'])
-        .run(function ($rootScope, l20n) {
+        .run(['$rootScope', 'documentL10n', 'l20n', function ($rootScope, documentL10n, l20n) {
             $rootScope.data = {objectsNum: 102};
             $rootScope.l20nId = 'objectsWithCount';
 
@@ -24,8 +24,8 @@
                 setObjectsNum(parseInt(newValue, 10) || 0);
             });
 
-            l20n.context.ready(function () {
+            documentL10n.ready(function () {
                 setObjectsNum(parseInt($rootScope.data.objectsNum, 10) || 0);
             });
-        });
+        }]);
 })();
