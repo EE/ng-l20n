@@ -87,12 +87,12 @@ define('l20n/html', function(require, exports, module) {
           ctx.addResource(scripts[i].textContent);
         }
       }
-      ctx.freeze();
+      ctx.requestLocales();
     } else {
       var link = headNode.querySelector('link[rel="localization"]');
       if (link) {
         // XXX add errback
-        loadManifest(link.getAttribute('href')).then(ctx.freeze.bind(ctx));
+        loadManifest(link.getAttribute('href'));
       } else {
         console.warn('L20n: No resources found. (Put them above l20n.js.)');
       }
@@ -167,24 +167,24 @@ define('l20n/html', function(require, exports, module) {
       rtlLocales.indexOf(loc) === -1 ? 'ltr' : 'rtl';
   }
 
-  function initializeManifest(manifest) {
+  function setupCtxFromManifest(manifest) {
+    // register available locales
+    ctx.registerLocales(manifest.default_locale, manifest.locales);
+    ctx.registerLocaleNegotiator(function(available, requested, defLoc) {
+      // lazy-require Intl
+      var Intl = require('./intl').Intl;
+      var Promise = require('./promise').Promise;
+      var fallbackChain = Intl.prioritizeLocales(available, requested, defLoc);
+      var deferred = new Promise();
+      setDocumentLanguage(fallbackChain[0]);
+      setTimeout(function() {
+        deferred.fulfill(fallbackChain);
+      });
+      return deferred;
+    });
+
+    // add resources
     var re = /{{\s*locale\s*}}/;
-    var Intl = require('./intl').Intl;
-    /**
-     * For now we just take nav.language, but we'd prefer to get
-     * a list of locales that the user can read sorted by user's preference,
-     * see:
-     * https://bugzilla.mozilla.org/show_bug.cgi?id=889335
-     *
-     * For IE we use navigator.browserLanguage, see:
-     * http://msdn.microsoft.com/en-us/library/ie/ms533542%28v=vs.85%29.aspx
-     **/
-    var curLang = navigator.language || navigator.browserLanguage;
-    var locList = Intl.prioritizeLocales(manifest.locales,
-                                         [curLang],
-                                         manifest.default_locale);
-    setDocumentLanguage(locList[0]);
-    ctx.registerLocales.apply(ctx, locList);
     manifest.resources.forEach(function(uri) {
       if (re.test(uri)) {
         ctx.linkResource(uri.replace.bind(uri, re));
@@ -192,6 +192,15 @@ define('l20n/html', function(require, exports, module) {
         ctx.linkResource(uri);
       }
     });
+
+    // For now we just take navigator.language, but we'd prefer to get a list 
+    // of locales that the user can read sorted by user's preference, see:
+    //   https://bugzilla.mozilla.org/show_bug.cgi?id=889335
+    // For IE we use navigator.browserLanguage, see:
+    //   http://msdn.microsoft.com/en-us/library/ie/ms533542%28v=vs.85%29.aspx
+    ctx.requestLocales(navigator.language || navigator.browserLanguage);
+
+    return manifest;
   }
 
   function relativeToManifest(manifestUrl, url) {
@@ -220,7 +229,7 @@ define('l20n/html', function(require, exports, module) {
         var manifest = JSON.parse(text);
         manifest.resources = manifest.resources.map(
                                relativeToManifest.bind(this, url));
-        initializeManifest(manifest);
+        setupCtxFromManifest(manifest);
         deferred.fulfill();
       }
     );
@@ -558,10 +567,11 @@ define('l20n/context', function(require, exports, module) {
 
     this.id = id;
 
+    this.registerLocales = registerLocales;
+    this.registerLocaleNegotiator = registerLocaleNegotiator;
+    this.requestLocales = requestLocales;
     this.addResource = addResource;
     this.linkResource = linkResource;
-    this.registerLocales = registerLocales;
-    this.freeze = freeze;
     this.updateData = updateData;
 
     this.get = get;
@@ -572,17 +582,23 @@ define('l20n/context', function(require, exports, module) {
     this.addEventListener = addEventListener;
     this.removeEventListener = removeEventListener;
 
+    Object.defineProperty(this, 'supportedLocales', {
+      get: function() { return _fallbackChain.slice(); },
+      enumerable: true
+    });
+
     var _data = {};
 
-    // all languages explicitly registered as available (list of codes)
-    var _registered = [];
-    // internal list of all available locales, including __none__ if needed
-    var _available = [];
+    // language negotiator function
+    var _negotiator;
+
+    // registered and available languages
+    var _default = 'i-default';
+    var _registered = [_default];
+    var _requested = [];
+    var _fallbackChain = [];
     // Locale objects corresponding to the registered languages
-    var _locales = {
-      // a special Locale for resources not associated with any other
-      __none__: undefined
-    };
+    var _locales = {};
 
     // URLs or text of resources (with information about the type) added via 
     // linkResource and addResource
@@ -704,7 +720,7 @@ define('l20n/context', function(require, exports, module) {
         // `reason` might be undefined if context was ready before `localize` 
         // was called;  in that case, we pass `locales` so that this scenario 
         // is transparent for the callback
-        reason: reason || { locales: _registered.slice() },
+        reason: reason || { locales: _fallbackChain.slice() },
         stop: function() {
           _retr.unbindGet(callback);
         }
@@ -737,10 +753,10 @@ define('l20n/context', function(require, exports, module) {
     }
 
     function getFromLocale(cur, id, data, sourceString) {
-      var locale = _locales[_available[cur]];
-
-      if (!locale) {
-        var ex = new GetError("Entity couldn't be retrieved", id, _registered);
+      var loc = _fallbackChain[cur];
+      if (!loc) {
+        var ex = new GetError("Entity couldn't be retrieved", id, 
+                              _fallbackChain.slice());
         _emitter.emit('error', ex);
         // imitate the return value of Compiler.Entity.get
         return {
@@ -750,6 +766,7 @@ define('l20n/context', function(require, exports, module) {
           locale: null
         };
       }
+      var locale = getLocale(loc);
 
       if (!locale.isReady) {
         locale.build(false);
@@ -818,92 +835,108 @@ define('l20n/context', function(require, exports, module) {
       }
     }
 
-    function registerLocales() {
-      if (_isFrozen && !_isReady) {
-        throw new ContextError('Context not ready');
-      }
-      _registered = [];
-      // _registered should remain empty if:
-      //   1. there are no arguments passed, or
-      //   2. the only argument is null
-      if (!(arguments[0] === null && arguments.length === 1)) {
-        for (var i in arguments) {
-          var loc = arguments[i];
-          if (typeof loc !== 'string') {
-            throw new ContextError('Language codes must be strings');
-          }
-          _registered.push(loc);
-          if (!(loc in _locales)) {
-            _locales[loc] = new Locale(loc, _parser, _compiler);
-          }
-        }
-      }
+    function registerLocales(defLocale, available) {
       if (_isFrozen) {
-        freeze();
+        throw new ContextError('Context is frozen');
+      }
+
+      if (defLocale === undefined) {
+        return;
+      }
+
+      _default = defLocale;
+      _registered = [];
+
+      if (!available) {
+        available = [];
+      }
+      available.push(defLocale);
+
+      // uniquify `available` into `_registered`
+      for (var i in available) {
+        var loc = available[i];
+        if (typeof loc !== 'string') {
+          throw new ContextError('Language codes must be strings');
+        }
+        if (_registered.indexOf(loc) === -1) {
+          _registered.push(loc);
+        }
       }
     }
 
-    function freeze() {
+    function registerLocaleNegotiator(negotiator) {
+      if (_isFrozen) {
+        throw new ContextError('Context is frozen');
+      }
+      _negotiator = negotiator;
+    }
+
+    function getLocale(loc) {
+      if (_locales[loc]) {
+        return _locales[loc];
+      }
+      var locale = _locales[loc] = new Locale(loc, _parser, _compiler);
+      // populate the locale with resources
+      for (var j = 0; j < _reslinks.length; j++) {
+        var res = _reslinks[j];
+        if (res[0] === 'text') {
+          // a resource added via addResource(String)
+          add(res[1], locale);
+        } else if (res[0] === 'uri') {
+          // a resource added via linkResource(String)
+          link(res[1], locale);
+        } else {
+          // a resource added via linkResource(Function);  the function 
+          // passed is a URL template and it takes the current locale's code 
+          // as an argument
+          link(res[1](locale.id), locale);
+        }
+      }
+      return locale;
+    }
+
+    function requestLocales() {
       if (_isFrozen && !_isReady) {
         throw new ContextError('Context not ready');
       }
 
       _isFrozen = true;
+      _requested = Array.prototype.slice.call(arguments);
 
-      // is the contex empty?
       if (_reslinks.length == 0) {
         throw new ContextError('Context has no resources');
       }
 
-      _available = [];
-      // if no locales have been registered, create a __none__ locale for the 
-      // single-locale mode
-      if (_registered.length === 0) {
-        _locales.__none__ = new Locale(null, _parser, _compiler);
-        _available.push('__none__');
-      } else {
-        _available = _registered.slice();
-      }
-      
-      // add & link all resources to the available locales
-      for (var i = 0; i < _available.length; i++) {
-        var locale = _locales[_available[i]];
-        for (var j = 0; j < _reslinks.length; j++) {
-          var res = _reslinks[j];
-          if (res[0] === 'text') {
-            // a resource added via addResource(String)
-            add(res[1], locale);
-          } else if (res[0] === 'uri') {
-            // a resource added via linkResource(String)
-            link(res[1], locale);
-          } else {
-            // a resource added via linkResource(Function);  the function 
-            // passed is a URL template and it takes the current locale's code 
-            // as an argument;  if the current locale doesn't have a code (it's 
-            // __none__), we can't call the template function correctly.
-            if (locale.id) {
-              link(res[1](locale.id), locale);
-            } else {
-              throw new ContextError('No registered locales');
-            }
-          }
+      // the whole language negotiation process can be asynchronous;  for now 
+      // we just use _registered as the list of all available locales, but in 
+      // the future we might asynchronously try to query a language pack 
+      // service of sorts for its own list of locales supported for this 
+      // context;  hence the allLocales promise.
+      var allLocales = new Promise();
+      allLocales.then(function(available) {
+        if (!_negotiator) {
+          var Intl = require('./intl').Intl;
+          _negotiator = Intl.prioritizeLocales;
         }
-      }
-
-      var locale = _locales[_available[0]];
-      if (locale.isReady) {
-        return setReady();
-      } else {
-        return locale.build(true)
-          .then(setReady)
-          // if setReady throws, don't silence the error but emit it instead
-          .then(null, echo.bind(null, 'debug'));
-      }
+        return _negotiator(available, _requested, _default);
+      }).then(function(chain) {
+        _fallbackChain = chain;
+        return getLocale(_fallbackChain[0]);
+      }).then(function(locale) {
+        if (locale.isReady) {
+          return setReady();
+        } else {
+          return locale.build(true);
+        }
+      }, echo.bind(null, 'error')).then(setReady)
+        // if setReady throws, don't silence the error but emit it instead
+        .then(null, echo.bind(null, 'debug'));
+      allLocales.fulfill(_registered);
     }
 
     function setReady() {
       _isReady = true;
-      _retr.all(_registered.slice());
+      _retr.all(_fallbackChain.slice());
       _emitter.emit('ready');
     }
 
@@ -935,7 +968,7 @@ define('l20n/context', function(require, exports, module) {
     this.name = 'EntityError';
     this.id = id;
     this.locale = loc;
-    this.message = (loc ? '[' + loc + '] ' : '') + id + ': ' + message;
+    this.message = '[' + loc + '] ' + id + ': ' + message;
   }
   EntityError.prototype = Object.create(ContextError.prototype);
   EntityError.prototype.constructor = EntityError;
@@ -945,11 +978,7 @@ define('l20n/context', function(require, exports, module) {
     this.name = 'GetError';
     this.id = id;
     this.tried = locs;
-    if (locs.length) {
-      this.message = id + ': ' + message + '; tried ' + locs.join(', ');
-    } else {
-      this.message = id + ': ' + message;
-    }
+    this.message = id + ': ' + message + '; tried ' + locs.join(', ');
   }
   GetError.prototype = Object.create(ContextError.prototype);
   GetError.prototype.constructor = GetError;
