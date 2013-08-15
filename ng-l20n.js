@@ -19,55 +19,29 @@
                         $rootScope.locale = newLocale;
                     };
 
-                    if (!localStorage.getItem('locale')) {
-                        // First visit to the site, set the default locale in localStorage.
-                        localStorage.setItem('locale', this.defaultLocale);
-                    }
-
-                    $rootScope.locale = localStorage.getItem('locale');
-
                     // Dynamically change the site locale based on $rootScope.locale changes.
                     documentL10n.once(function () {
-                        // Make sure a locale is registered at least once.
-                        documentL10n.registerLocales($rootScope.locale);
-
                         $rootScope.$watch('locale', function (newLocale) {
                             if (newLocale) { // it might be undefined
                                 localStorage.setItem('locale', newLocale);
-                                documentL10n.registerLocales(newLocale);
+                                documentL10n.requestLocales(newLocale);
                             }
                         });
+
+                        if (!localStorage.getItem('locale')) {
+                            // First visit to the site, set the default locale in localStorage.
+                            localStorage.setItem('locale', documentL10n.supportedLocales[0]);
+                        }
+
+                        $rootScope.locale = localStorage.getItem('locale');
+
+                        // If the locale negotiated by L20n is different from 
+                        // the one we stored in localStorage, prefer the one in 
+                        // the localStorage
+                        if (documentL10n.supportedLocales[0] !== $rootScope.locale) {
+                            documentL10n.requestLocales($rootScope.locale);
+                        }
                     });
-                },
-
-                // Available locales in order of preference.
-                // TODO get it from the manifest file
-                allLocales: ['en-US', 'pl'],
-
-                get defaultLocale() {
-                    var firstMatchingLocale, i,
-                        navigatorLanguage = navigator.language;
-
-                    // Returns a default locale that is presented to the user when they first visit the site.
-                    if (this.allLocales.indexOf(navigatorLanguage) !== -1) {
-                        // The browser locale is available, use it.
-                        return navigatorLanguage;
-                    } else {
-                        // In the absence of an exact match, check if navigator.language is a substring
-                        // of one of provided locales.
-                        for (i = 0; i < this.allLocales.length; i++) {
-                            firstMatchingLocale = this.allLocales[i];
-                            if (firstMatchingLocale.indexOf(navigatorLanguage) !== -1) {
-                                // We got the first matching locale.
-                                break;
-                            }
-                        }
-                        if (firstMatchingLocale) {
-                            return firstMatchingLocale;
-                        }
-                    }
-                    // No match, just use the first available locale from the list.
-                    return this.allLocales[0];
                 },
 
                 updateData: function updateData() {
