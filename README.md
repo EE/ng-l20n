@@ -20,3 +20,8 @@ However, the module is very small so modifying it shouldn't be too hard.
 
 Currently, the assumptions are that available locales are `en-US` and `pl` (feel free to change them) and that all
 l20n translation files are located under `/locales/` directory, in files named `$locale.l20n`, eg `en-US.l20n`.
+
+License
+-------
+
+The module is available under the MIT license (see MIT-LICENSE.txt for details).
