@@ -61,7 +61,7 @@
             return l20n;
         }])
 
-        .directive('l20n', ['$compile', function ($compile) {
+        .directive('l20n', ['documentL10n', function (documentL10n) {
             /**
              * Since the attribute data-l10n-id could hold not the localization id itself but a string
              * to be evaluated and l20n doesn't place nice with it, we need to pre-evaluate the attribute
@@ -71,29 +71,16 @@
             return function (scope, element, attrs) {
                 // Prepare for the l10nId directive.
                 element.attr('data-l10n-id', attrs.l20n);
-                // Prevent re-running this directive on $compile.
-                element.removeAttr('l20n');
-                element.removeAttr('data-l20n');
-                // Compile to be parsed by the l10nId directive link code.
-                $compile(element)(scope);
-            };
-        }])
-
-        .directive('l10nId', ['documentL10n', function (documentL10n) {
-            /**
-             * A hook for l20n library. All elements with a data-l10n-id attribute are processed by l20n.
-             * Note: don't use this directive directly for anything other simple strings that don't need to
-             * be evaluated, use (data-|)l20n (see in l20n directive comments for reasons).
-             */
-            return function (scope, element) {
-                function updateTranslation() {
-                    documentL10n.localizeNode(element[0]);
-                }
 
                 documentL10n.once(function () {
                     document.addEventListener('l20n:dataupdated', updateTranslation);
                     updateTranslation();
                 });
+
+                function updateTranslation() {
+                    documentL10n.localizeNode(element[0]);
+                }
+
             };
         }])
 
