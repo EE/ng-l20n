@@ -69,18 +69,19 @@
              * processed by the l10nId directive.
              */
             return function (scope, element, attrs) {
-                // Prepare for the l10nId directive.
-                element.attr('data-l10n-id', attrs.l20n);
+                attrs.$observe('l20n', function () {
+                    // Prepare for the l10nId directive.
+                    element.attr('data-l10n-id', attrs.l20n);
 
-                documentL10n.once(function () {
-                    document.addEventListener('l20n:dataupdated', updateTranslation);
-                    updateTranslation();
+                    documentL10n.once(function () {
+                        document.addEventListener('l20n:dataupdated', localizeCurrentNode);
+                        localizeCurrentNode();
+                    });
+
+                    function localizeCurrentNode() {
+                        documentL10n.localizeNode(element[0]);
+                    }
                 });
-
-                function updateTranslation() {
-                    documentL10n.localizeNode(element[0]);
-                }
-
             };
         }])
 
