@@ -16,3 +16,11 @@ License
 -------
 
 The module is available under the MIT license (see MIT-LICENSE.txt for details).
+
+Notes
+-----
+
+`ng-l20n` requires changes recently made in `l20n.js`. Because of that, it requires `l20n.js in version at least
+beta 4.
+
+`ng-l20n` doesn't support [overlaying nodes]( nodes: https://blog.mozilla.org/l10n/2012/07/16/l20n-features-explained-dom-overlays/) yet.
