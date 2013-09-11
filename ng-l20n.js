@@ -56,68 +56,27 @@
             };
         }])
 
-        .directive('l20n', ['$compile', '$timeout', 'documentL10n', function ($compile, $timeout, documentL10n) {
+        .directive('l20n', ['documentL10n', function (documentL10n) {
             /**
              * Since the attribute data-l10n-id could hold not the localization id itself but a string
              * to be evaluated and l20n doesn't place nice with it, we need to pre-evaluate the attribute
              * and pass it to the data-l10n-id attribute later. The data-l10n-id attribute is, in turn,
              * processed by the l10nId directive.
              */
-            return {
-                priority: 1000,
-                link: function (scope, element, attrs) {
-                    var originalHTML, localizesWaiting,
-                        domElement = element[0];
-                    if (domElement.nodeType !== 1) {
-                        // Work only on element nodes.
-                        // TODO: why do comment nodes appear here anyway?
-                        return;
-                    }
+            return function (scope, element, attrs) {
+                attrs.$observe('l20n', function () {
+                    // Prepare for the l10nId directive.
+                    element.attr('data-l10n-id', attrs.l20n);
 
-                    originalHTML = domElement.outerHTML;
-                    localizesWaiting = 0;
-
-                    attrs.$observe('l20n', function () {
-                        documentL10n.once(function () {
-                            document.addEventListener('l20n:dataupdated', localizeCurrentNode);
-                            localizeCurrentNode();
-                        });
-
-                        function localizeCurrentNode(alreadyCounted) {
-                            var phase = scope.$root.$$phase;
-                            if (phase === '$apply' || phase === '$digest') {
-                                if (localizesWaiting === 0) {
-                                    // If one function is already waiting, no reason to repeat its actions.
-                                    if (!alreadyCounted) {
-                                        localizesWaiting++;
-                                    }
-                                    $timeout(localizeCurrentNode.bind(null, true), 100);
-                                }
-
-                                return;
-                            }
-
-                            scope.$apply(function () {
-                                // Compile the original element to be able to re-create all bindings.
-                                var originalElement = angular.element(originalHTML);
-
-                                // Prepare for the l10nId directive.
-                                element.attr('data-l10n-id', attrs.l20n);
-                                originalElement.attr('data-l10n-id', attrs.l20n);
-
-                                // Localize the newly restored element.
-                                documentL10n.localizeNode(originalElement[0]);
-
-                                // Re-compile element contents to re-create the bindings.
-                                $compile(originalElement.children())(scope);
-                                element.html('');
-                                element.append(originalElement.contents());
-
-                                localizesWaiting--;
-                            });
-                        }
+                    documentL10n.once(function () {
+                        document.addEventListener('l20n:dataupdated', localizeCurrentNode);
+                        localizeCurrentNode();
                     });
-                },
+
+                    function localizeCurrentNode() {
+                        documentL10n.localizeNode(element[0]);
+                    }
+                });
             };
         }])
 
