@@ -66,8 +66,16 @@
             return {
                 priority: 1000,
                 link: function (scope, element, attrs) {
-                    var originalHTML = element[0].outerHTML,
-                        localizesWaiting = 0;
+                    var originalHTML, localizesWaiting,
+                        domElement = element[0];
+                    if (domElement.nodeType !== 1) {
+                        // Work only on element nodes.
+                        // TODO: why do comment nodes appear here anyway?
+                        return;
+                    }
+
+                    originalHTML = domElement.outerHTML;
+                    localizesWaiting = 0;
 
                     attrs.$observe('l20n', function () {
                         documentL10n.once(function () {
@@ -101,7 +109,7 @@
                                 documentL10n.localizeNode(originalElement[0]);
 
                                 // Re-compile element contents to re-create the bindings.
-                                $compile(originalElement.contents())(scope);
+                                $compile(originalElement.children())(scope);
                                 element.html('');
                                 element.append(originalElement.contents());
 

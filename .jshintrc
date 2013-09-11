@@ -9,6 +9,7 @@
     "noarg": true,
     "noempty": true,
     "nonew": true,
+    "onevar": true,
     "strict": true,
     "trailing": true,
     "undef": true,
