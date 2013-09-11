@@ -11,8 +11,11 @@
 
     angular.module('testApp', ['ngL20n'])
         .run(['$rootScope', 'documentL10n', 'l20n', function ($rootScope, documentL10n, l20n) {
-            $rootScope.data = {objectsNum: 102};
             $rootScope.l20nId = 'objectsWithCount';
+            $rootScope.data = {
+                objectsNum: 102,
+                testNumber: 0,
+            };
 
             function setObjectsNum(number) {
                 l20n.updateData({

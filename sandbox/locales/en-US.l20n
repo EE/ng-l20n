@@ -11,3 +11,5 @@
 }>
 
 <setObjectsNumber "Set objects number">
+
+<overlayed "This paragraph tests <strong>overlaying nodes</strong>. Test number: <input>.">

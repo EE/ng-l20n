@@ -5,17 +5,29 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Test app</title>
     <link rel="localization" href="locales/l20n.json">
+    <style>
+        div {
+            margin: 20px 0;
+        }
+        div[data-l20n="overlayed"] > strong::after {
+            content: attr(data-result);
+        }
+    </style>
 </head>
 
 <body>
 <p data-l20n="{{ l20nId }}"></p>
+<input type="number" ng-model="data.objectsNum">
 
-<p>
+<div>
     <a href="#" ng-show="locale !== 'pl'" ng-click="changeLocale('pl')">Wersja polska</a>
     <a href="#" ng-show="locale !== 'en-US'" ng-click="changeLocale('en-US')">English version</a>
-</p>
+</div>
 
-<input type="number" ng-model="data.objectsNum">
+<div data-l20n="overlayed" data-l10n-overlay>
+    <strong data-result=" (Attribute: {{ data.testNumber }}) "></strong>
+    <input type="number" ng-model="data.testNumber">
+</div>
 
 <script src="../vendor/l20n.js"></script>
 <script src="../vendor/angular.js"></script>

@@ -56,7 +56,6 @@ define('l20n/html', function(require, exports, module) {
   'use strict';
 
   var L20n = require('../l20n');
-  var Promise = require('./promise').Promise;
   var io = require('./platform/io');
 
   var localizeHandler;
@@ -136,9 +135,8 @@ define('l20n/html', function(require, exports, module) {
   }
 
   function bindPublicAPI() {
-    ctx.addEventListener('error', console.warn.bind(console));
-    ctx.addEventListener('debug', console.error.bind(console));
-
+    ctx.addEventListener('error', console.error.bind(console));
+    ctx.addEventListener('warning', console.warn.bind(console));
     ctx.localizeNode = function localizeNode(node) {
       var nodes = getNodes(node);
       var many = localizeHandler.extend(nodes.ids);
@@ -173,14 +171,9 @@ define('l20n/html', function(require, exports, module) {
     ctx.registerLocaleNegotiator(function(available, requested, defLoc) {
       // lazy-require Intl
       var Intl = require('./intl').Intl;
-      var Promise = require('./promise').Promise;
       var fallbackChain = Intl.prioritizeLocales(available, requested, defLoc);
-      var deferred = new Promise();
       setDocumentLanguage(fallbackChain[0]);
-      setTimeout(function() {
-        deferred.fulfill(fallbackChain);
-      });
-      return deferred;
+      return fallbackChain;
     });
 
     // add resources
@@ -223,17 +216,12 @@ define('l20n/html', function(require, exports, module) {
   }
 
   function loadManifest(url) {
-    var deferred = new Promise();
-    io.loadAsync(url).then(
-      function(text) {
-        var manifest = JSON.parse(text);
-        manifest.resources = manifest.resources.map(
-                               relativeToManifest.bind(this, url));
-        setupCtxFromManifest(manifest);
-        deferred.fulfill();
-      }
-    );
-    return deferred;
+    io.load(url, function manifestLoaded(err, text) {
+      var manifest = JSON.parse(text);
+      manifest.resources = manifest.resources.map(
+                             relativeToManifest.bind(this, url));
+      setupCtxFromManifest(manifest);
+    });
   }
 
   function fireLocalizedEvent() {
@@ -259,12 +247,20 @@ define('l20n/html', function(require, exports, module) {
     };
   }
 
+  function camelCaseToDashed(string) {
+    return string
+      .replace(/[A-Z]/g, function (match) {
+        return '-' + match.toLowerCase();
+      })
+      .replace(/^-/, '');
+  }
+
   function translateNode(node, id, entity) {
     if (!entity) {
       return;
     }
     for (var key in entity.attributes) {
-      node.setAttribute(key, entity.attributes[key]);
+      node.setAttribute(camelCaseToDashed(key), entity.attributes[key]);
     }
     if (entity.value) {
       if (node.hasAttribute('data-l10n-overlay')) {
@@ -285,11 +281,11 @@ define('l20n/html', function(require, exports, module) {
     // sourceNode - in retranslation case, we need to store the original
     // node from before translation, in order to properly apply path matchings
     //
-    // l10nNode - new fragment that takes the l10n value and applies attributes
-    // from the sourceNode for matching nodes
+    // l10nNode - new fragment from which translated values are taken
+    // and applied to the sourceNode for matching nodes
 
-    var sourceNode = node._l20nSourceNode || node;
-    var l10nNode = sourceNode.cloneNode(false);
+    var sourceNode = node._l20nSourceNode || node.cloneNode(true);
+    var l10nNode = document.createElement('div');
 
     l10nNode.innerHTML = value;
 
@@ -308,9 +304,8 @@ define('l20n/html', function(require, exports, module) {
       }
     }
 
-    l10nNode._l20nSourceNode = sourceNode;
-    node.parentNode.replaceChild(l10nNode, node);
-    return;
+    node._l20nSourceNode = sourceNode;
+    node.innerHTML = l10nNode.innerHTML;
   }
 
 
@@ -379,7 +374,6 @@ define('l20n/context', function(require, exports, module) {
   var EventEmitter = require('./events').EventEmitter;
   var Parser = require('./parser').Parser;
   var Compiler = require('./compiler').Compiler;
-  var Promise = require('./promise').Promise;
   var RetranslationManager = require('./retranslation').RetranslationManager;
 
   // register globals with RetranslationManager
@@ -392,7 +386,6 @@ define('l20n/context', function(require, exports, module) {
     this.id = id;
     this.resources = [];
     this.source = null;
-    this.isReady = false;
     this.ast = {
       type: 'LOL',
       body: []
@@ -402,84 +395,75 @@ define('l20n/context', function(require, exports, module) {
 
     var _imports_positions = [];
 
-    function build(nesting, async) {
+    function build(nesting, callback, sync) {
       if (nesting >= 7) {
-        throw new ContextError('Too many nested imports.');
+        return callback(new ContextError('Too many nested imports.'));
       }
-      if (!async) {
-        fetch(async);
-        parse();
-        buildImports(nesting + 1, async);
-        flatten();
-        return;
-      }
-      return fetch(async)
-        .then(parse)
-        .then(buildImports.bind(this, nesting + 1, async))
-        .then(flatten);
-    }
 
-    function fetch(async) {
-      if (!async) {
-        if (self.source) {
-          return self.source;
+      if (self.source) {
+        // Bug 908826 - Don't artificially force asynchronicity when only using 
+        // addResource
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=908826
+        return setTimeout(function() {
+          parse();
+        });
+      } else {
+        io.load(self.id, parse, sync);
+      }
+
+      function parse(err, text) {
+        if (err) {
+          return callback(err);
+        } else if (text) {
+          self.source = text;
         }
-        try {
-          return self.source = io.loadSync(self.id);
-        } catch (e) {
-          if (e instanceof io.Error) {
-            return self.source = '';
-          } else {
-            throw e;
+        self.ast = parser.parse(self.source);
+        buildImports();
+      }
+
+      function buildImports() {
+        var imports = self.ast.body.filter(function(elem, i) {
+          if (elem.type == 'ImportStatement') {
+            _imports_positions.push(i);
+            return true;
+          }
+          return false;
+        });
+
+        imports.forEach(function(imp) {
+          var uri = relativeToSelf(imp.uri.content);
+          var res = new Resource(uri, parser);
+          self.resources.push(res);
+        });
+
+        var importsToBuild = self.resources.length;
+        if (importsToBuild === 0) {
+          return callback();
+        }
+
+        self.resources.forEach(function(res) {
+          res.build(nesting + 1, resourceBuilt, sync);
+        });
+
+        function resourceBuilt(err) {
+          if (err) {
+            return callback(err);
+          }
+          importsToBuild--;
+          if (importsToBuild == 0) {
+            flatten();
           }
         }
       }
-      if (self.source) {
-        var source = new Promise();
-        source.fulfill();
-        return source;
-      }
-      return io.loadAsync(self.id).then(function load_success(text) {
-        self.source = text;
-      });
-    }
 
-    function parse() {
-      self.ast = parser.parse(self.source);
-    }
-
-    function buildImports(nesting, async) {
-      var imports = self.ast.body.filter(function(elem, i) {
-        if (elem.type == 'ImportStatement') {
-          _imports_positions.push(i);
-          return true;
+      function flatten() {
+        for (var i = self.resources.length - 1; i >= 0; i--) {
+          var pos = _imports_positions[i] || 0;
+          Array.prototype.splice.apply(self.ast.body,
+            [pos, 1].concat(self.resources[i].ast.body));
         }
-        return false;
-      });
-
-      imports.forEach(function(imp) {
-        var uri = relativeToSelf(imp.uri.content);
-        var res = new Resource(uri, parser);
-        self.resources.push(res);
-      });
-
-      var imports_built = [];
-      self.resources.forEach(function(res) {
-        imports_built.push(res.build(nesting, async));
-      });
-
-      if (async) {
-        return Promise.all(imports_built);
+        callback();
       }
-    }
-
-    function flatten() {
-      for (var i = self.resources.length - 1; i >= 0; i--) {
-        var pos = _imports_positions[i] || 0;
-        Array.prototype.splice.apply(self.ast.body,
-          [pos, 1].concat(self.resources[i].ast.body));
-      }
-      self.isReady = true;
     }
 
     function relativeToSelf(url) {
@@ -500,7 +484,7 @@ define('l20n/context', function(require, exports, module) {
 
   }
 
-  function Locale(id, parser, compiler) {
+  function Locale(id, parser, compiler, emitter) {
     this.id = id;
     this.resources = [];
     this.entries = null;
@@ -516,37 +500,53 @@ define('l20n/context', function(require, exports, module) {
 
     var self = this;
 
-    function build(async) {
-      if (!async) {
-        buildResources(async);
-        flatten();
-        compile();
-        return this;
+    function build(callback) {
+      if (!callback) {
+        var sync = true;
       }
-      return buildResources(async)
-        .then(flatten)
-        .then(compile);
-    }
 
-    function buildResources(async) {
-      var resources_built = [];
+      var resourcesToBuild = self.resources.length;
+      if (resourcesToBuild === 0) {
+        throw new ContextError('Locale has no resources');
+      }
+
+      var resourcesWithErrors = 0;
       self.resources.forEach(function(res) {
-        resources_built.push(res.build(0, async));
+        res.build(0, resourceBuilt, sync);
       });
-      if (async) {
-        return Promise.all(resources_built);
+
+      function resourceBuilt(err) {
+        if (err) {
+          resourcesWithErrors++;
+          emitter.emit(err instanceof ContextError ? 'error' : 'warning', err);
+        }
+        resourcesToBuild--;
+        if (resourcesToBuild == 0) {
+          if (resourcesWithErrors == self.resources.length) {
+            // XXX Bug 908780 - Decide what to do when all resources in 
+            // a locale are missing or broken
+            // https://bugzilla.mozilla.org/show_bug.cgi?id=908780
+            emitter.emit('error', 
+                         new ContextError('Locale has no valid resources'));
+          }
+          flatten();
+        }
       }
-    }
 
-    function flatten() {
-      self.ast.body = self.resources.reduce(function(prev, curr) {
-        return prev.concat(curr.ast.body);
-      }, self.ast.body);
-    }
+      function flatten() {
+        self.ast.body = self.resources.reduce(function(prev, curr) {
+          return prev.concat(curr.ast.body);
+        }, self.ast.body);
+        compile();
+      }
 
-    function compile() {
-      self.entries = compiler.compile(self.ast);
-      self.isReady = true;
+      function compile() {
+        self.entries = compiler.compile(self.ast);
+        self.isReady = true;
+        if (callback) {
+          callback();
+        }
+      }
     }
 
     function getEntry(id) { 
@@ -615,8 +615,8 @@ define('l20n/context', function(require, exports, module) {
     var _listeners = [];
     var self = this;
 
-    _parser.addEventListener('error', echo.bind(null, 'error'));
-    _compiler.addEventListener('error', echo.bind(null, 'error'));
+    _parser.addEventListener('error', error);
+    _compiler.addEventListener('error', warn);
     _compiler.setGlobals(_retr.globals);
 
     function extend(dst, src) {
@@ -752,32 +752,32 @@ define('l20n/context', function(require, exports, module) {
       return many;
     }
 
-    function getFromLocale(cur, id, data, sourceString) {
+    function getFromLocale(cur, id, data, prevSource) {
       var loc = _fallbackChain[cur];
       if (!loc) {
-        var ex = new GetError("Entity couldn't be retrieved", id, 
-                              _fallbackChain.slice());
-        _emitter.emit('error', ex);
+        error(new RuntimeError('Unable to get translation', id, 
+                               _fallbackChain));
         // imitate the return value of Compiler.Entity.get
         return {
-          value: sourceString ? sourceString : id,
+          value: prevSource ? prevSource.source : id,
           attributes: {},
           globals: {},
-          locale: null
+          locale: prevSource ? prevSource.loc : null
         };
       }
       var locale = getLocale(loc);
 
       if (!locale.isReady) {
-        locale.build(false);
+        // build without a callback, synchronously
+        locale.build(null);
       }
 
       var entry = locale.getEntry(id);
 
       // if the entry is missing, just go to the next locale immediately
       if (entry === undefined) {
-        _emitter.emit('error', new EntityError('Not found', id, locale.id));
-        return getFromLocale.call(this, cur + 1, id, data, sourceString);
+        warn(new TranslationError('Not found', id, _fallbackChain, locale));
+        return getFromLocale.call(this, cur + 1, id, data, prevSource);
       }
 
       // otherwise, try to get the value of the entry
@@ -785,11 +785,18 @@ define('l20n/context', function(require, exports, module) {
         var value = entry.get(getArgs.call(this, data));
       } catch (e) {
         if (e instanceof Compiler.RuntimeError) {
-          _emitter.emit('error', new EntityError(e.message, id, locale.id));
-          return getFromLocale.call(this, cur + 1, id, data, 
-                                    sourceString || e.source);
+          error(new TranslationError(e.message, id, _fallbackChain, locale));
+          if (e instanceof Compiler.ValueError) {
+            // salvage the source string which the compiler wasn't able to 
+            // evaluate completely;  this is still better than returning the 
+            // identifer;  prefer a source string from locales earlier in the 
+            // fallback chain, if available
+            var source = prevSource || { source: e.source, loc: locale.id };
+            return getFromLocale.call(this, cur + 1, id, data, source);
+          }
+          return getFromLocale.call(this, cur + 1, id, data, prevSource);
         } else {
-          throw e;
+          throw error(e);
         }
       }
       value.locale = locale.id;
@@ -853,15 +860,14 @@ define('l20n/context', function(require, exports, module) {
       available.push(defLocale);
 
       // uniquify `available` into `_registered`
-      for (var i in available) {
-        var loc = available[i];
+      available.forEach(function(loc) {
         if (typeof loc !== 'string') {
           throw new ContextError('Language codes must be strings');
         }
         if (_registered.indexOf(loc) === -1) {
           _registered.push(loc);
         }
-      }
+      });
     }
 
     function registerLocaleNegotiator(negotiator) {
@@ -875,7 +881,8 @@ define('l20n/context', function(require, exports, module) {
       if (_locales[loc]) {
         return _locales[loc];
       }
-      var locale = _locales[loc] = new Locale(loc, _parser, _compiler);
+      var locale = new Locale(loc, _parser, _compiler, _emitter);
+      _locales[loc] = locale;
       // populate the locale with resources
       for (var j = 0; j < _reslinks.length; j++) {
         var res = _reslinks[j];
@@ -900,38 +907,38 @@ define('l20n/context', function(require, exports, module) {
         throw new ContextError('Context not ready');
       }
 
+      if (_reslinks.length == 0) {
+        warn(new ContextError('Context has no resources; not freezing'));
+        return;
+      }
+
       _isFrozen = true;
       _requested = Array.prototype.slice.call(arguments);
 
-      if (_reslinks.length == 0) {
-        throw new ContextError('Context has no resources');
+      if (_requested.length) {
+        _requested.forEach(function(loc) {
+          if (typeof loc !== 'string') {
+            throw new ContextError('Language codes must be strings');
+          }
+        });
       }
 
       // the whole language negotiation process can be asynchronous;  for now 
       // we just use _registered as the list of all available locales, but in 
       // the future we might asynchronously try to query a language pack 
       // service of sorts for its own list of locales supported for this 
-      // context;  hence the allLocales promise.
-      var allLocales = new Promise();
-      allLocales.then(function(available) {
+      // context
         if (!_negotiator) {
           var Intl = require('./intl').Intl;
           _negotiator = Intl.prioritizeLocales;
         }
-        return _negotiator(available, _requested, _default);
-      }).then(function(chain) {
-        _fallbackChain = chain;
-        return getLocale(_fallbackChain[0]);
-      }).then(function(locale) {
+        _fallbackChain = _negotiator(_registered, _requested, _default);
+        var locale = getLocale(_fallbackChain[0]);
         if (locale.isReady) {
           return setReady();
         } else {
-          return locale.build(true);
+          return locale.build(setReady);
         }
-      }, echo.bind(null, 'error')).then(setReady)
-        // if setReady throws, don't silence the error but emit it instead
-        .then(null, echo.bind(null, 'debug'));
-      allLocales.fulfill(_registered);
     }
 
     function setReady() {
@@ -948,13 +955,20 @@ define('l20n/context', function(require, exports, module) {
       _emitter.removeEventListener(type, listener);
     }
 
-    function echo(type, e) {
-      _emitter.emit(type, e);
+    function warn(e) {
+      _emitter.emit('warning', e);
+      return e;
     }
-}
+
+    function error(e) {
+      _emitter.emit('error', e);
+      return e;
+    }
+  }
 
   Context.Error = ContextError;
-  Context.EntityError = EntityError;
+  Context.RuntimeError = RuntimeError;
+  Context.TranslationError = TranslationError;
 
   function ContextError(message) {
     this.name = 'ContextError';
@@ -963,25 +977,24 @@ define('l20n/context', function(require, exports, module) {
   ContextError.prototype = Object.create(Error.prototype);
   ContextError.prototype.constructor = ContextError;
 
-  function EntityError(message, id, loc) {
+  function RuntimeError(message, id, supported) {
     ContextError.call(this, message);
-    this.name = 'EntityError';
-    this.id = id;
-    this.locale = loc;
-    this.message = '[' + loc + '] ' + id + ': ' + message;
+    this.name = 'RuntimeError';
+    this.entity = id;
+    this.supportedLocales = supported.slice();
+    this.message = id + ': ' + message + '; tried ' + supported.join(', ');
   }
-  EntityError.prototype = Object.create(ContextError.prototype);
-  EntityError.prototype.constructor = EntityError;
+  RuntimeError.prototype = Object.create(ContextError.prototype);
+  RuntimeError.prototype.constructor = RuntimeError;
 
-  function GetError(message, id, locs) {
-    ContextError.call(this, message);
-    this.name = 'GetError';
-    this.id = id;
-    this.tried = locs;
-    this.message = id + ': ' + message + '; tried ' + locs.join(', ');
+  function TranslationError(message, id, supported, locale) {
+    RuntimeError.call(this, message, id, supported);
+    this.name = 'TranslationError';
+    this.locale = locale.id;
+    this.message = '[' + this.locale + '] ' + id + ': ' + message;
   }
-  GetError.prototype = Object.create(ContextError.prototype);
-  GetError.prototype.constructor = GetError;
+  TranslationError.prototype = Object.create(RuntimeError.prototype);
+  TranslationError.prototype.constructor = TranslationError;
 
   exports.Context = Context;
 
@@ -2959,151 +2972,6 @@ define('l20n/compiler', function(require, exports, module) {
   exports.Compiler = Compiler;
 
 });
-/*
- *  Any copyright is dedicated to the Public Domain.
- *  http://creativecommons.org/publicdomain/zero/1.0/
- */
-
-define('l20n/promise', function(require, exports, module) {
-  'use strict';
-
-  var Promise = function() {
-    this._state = 0; /* 0 = pending, 1 = fulfilled, 2 = rejected */
-    this._value = null; /* fulfillment / rejection value */
-
-    this._cb = {
-      fulfilled: [],
-      rejected: []
-    };
-
-    this._thenPromises = []; /* promises returned by then() */
-  };
-
-  Promise.all = function(list) {
-    var pr = new Promise();
-    var toResolve = list.length;
-    if (toResolve == 0) {
-      pr.fulfill();
-      return pr;
-    }
-    function onResolve() {
-      toResolve--;
-      if (toResolve == 0) {
-        pr.fulfill();
-      }
-    }
-    for (var idx in list) {
-      // XXX should there be a different callback for promises errorring out?
-      // with two onResolve callbacks, all() is more like some().
-      list[idx].then(onResolve, onResolve);
-    }
-    return pr;
-  };
-
-  /**
-   * @param {function} onFulfilled To be called once this promise is fulfilled.
-   * @param {function} onRejected To be called once this promise is rejected.
-   * @return {Promise}
-   */
-  Promise.prototype.then = function(onFulfilled, onRejected) {
-    this._cb.fulfilled.push(onFulfilled);
-    this._cb.rejected.push(onRejected);
-
-    var thenPromise = new Promise();
-
-    this._thenPromises.push(thenPromise);
-
-    if (this._state > 0) {
-      setTimeout(this._processQueue.bind(this), 0);
-    }
-
-    // 3.2.6. then must return a promise.
-    return thenPromise; 
-  };
-
-  /**
-   * Fulfill this promise with a given value
-   * @param {any} value
-   */
-  Promise.prototype.fulfill = function(value) {
-    if (this._state != 0) { return this; }
-
-    this._state = 1;
-    this._value = value;
-
-    this._processQueue();
-
-    return this;
-  };
-
-  /**
-   * Reject this promise with a given value
-   * @param {any} value
-   */
-  Promise.prototype.reject = function(value) {
-    if (this._state != 0) { return this; }
-
-    this._state = 2;
-    this._value = value;
-
-    this._processQueue();
-
-    return this;
-  };
-
-  Promise.prototype._processQueue = function() {
-    while (this._thenPromises.length) {
-      var onFulfilled = this._cb.fulfilled.shift();
-      var onRejected = this._cb.rejected.shift();
-      this._executeCallback(this._state == 1 ? onFulfilled : onRejected);
-    }
-  };
-
-  Promise.prototype._executeCallback = function(cb) {
-    var thenPromise = this._thenPromises.shift();
-
-    if (typeof(cb) != 'function') {
-      if (this._state == 1) {
-        // 3.2.6.4. If onFulfilled is not a function and promise1 is fulfilled, 
-        // promise2 must be fulfilled with the same value.
-        thenPromise.fulfill(this._value);
-      } else {
-        // 3.2.6.5. If onRejected is not a function and promise1 is rejected, 
-        // promise2 must be rejected with the same reason.
-        thenPromise.reject(this._value);
-      }
-      return;
-    }
-
-    try {
-      var returned = cb(this._value);
-
-      if (returned && typeof(returned.then) == 'function') {
-        // 3.2.6.3. If either onFulfilled or onRejected returns a promise (call 
-        // it returnedPromise), promise2 must assume the state of 
-        // returnedPromise
-        var fulfillThenPromise = function(value) { thenPromise.fulfill(value); 
-        };
-        var rejectThenPromise = function(value) { thenPromise.reject(value); };
-        returned.then(fulfillThenPromise, rejectThenPromise);
-      } else {
-        // 3.2.6.1. If either onFulfilled or onRejected returns a value that is 
-        // not a promise, promise2 must be fulfilled with that value.
-        thenPromise.fulfill(returned);
-      }
-
-    } catch (e) {
-
-      // 3.2.6.2. If either onFulfilled or onRejected throws an exception, 
-      // promise2 must be rejected with the thrown exception as the reason.
-      thenPromise.reject(e); 
-
-    }
-  };
-
-  exports.Promise = Promise;
-
-});
 define('l20n/retranslation', function(require, exports, module) {
   'use strict';
 
@@ -3421,31 +3289,30 @@ define('l20n/platform/globals', function(require, exports, module) {
 define('l20n/platform/io', function(require, exports, module) {
   'use strict';
 
-  var Promise = require('../promise').Promise;
-
-  exports.loadAsync = function loadAsync(url) {
-    var deferred = new Promise();
+  exports.load = function load(url, callback, sync) {
+    if (sync) {
+      return loadSync(url, callback);
+    }
     var xhr = new XMLHttpRequest();
     if (xhr.overrideMimeType) {
       xhr.overrideMimeType('text/plain');
     }
     xhr.addEventListener('load', function() {
       if (xhr.status == 200 || xhr.status == 0) {
-        deferred.fulfill(xhr.responseText);
+        callback(null, xhr.responseText);
       } else {
         var ex = new IOError('Not found: ' + url);
-        deferred.reject(ex);
+        callback(ex);
       }
     });
     xhr.addEventListener('abort', function(e) {
-      return deferred.reject(e);
+      callback(e);
     });
     xhr.open('GET', url, true);
     xhr.send('');
-    return deferred;
   };
 
-  exports.loadSync = function loadSync(url) {
+  function loadSync(url, callback) {
     var xhr = new XMLHttpRequest();
     if (xhr.overrideMimeType) {
       xhr.overrideMimeType('text/plain');
@@ -3453,9 +3320,9 @@ define('l20n/platform/io', function(require, exports, module) {
     xhr.open('GET', url, false);
     xhr.send('');
     if (xhr.status == 200 || xhr.status == 0) {
-      return xhr.responseText;
+      callback(null, xhr.responseText);
     } else {
-      throw new IOError('Not found: ' + url);
+      callback(new IOError('Not found: ' + url));
     }
   };
 
