@@ -1,21 +1,5 @@
 *~
 .*~
-.idea
 
-.sass-cache
-*.defs
-*.tmp
-
-/Gemfile.lock
 /node_modules
-
-/dont-use-defs-scripts
-/libpeerconnection.log
-/test-results.xml
 /dist
-
-/app/styles.css
-/app/styles.css.map
-/app/index.html
-/app/templates.js
-/app/templates/*.html

@@ -1,0 +1,30 @@
+{
+    "name": "ng-l20n",
+    "version": "0.1.0-pre",
+    "description": "An Angular module for l20n.js: localization 2.0",
+    "homepage": "https://github.com/EE/ng-l20n",
+    "author": {
+        "name": "Michał Gołębiowski",
+        "email": "michal.golebiowski@laboratorium.ee",
+        "url": "http://laboratorium.ee"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/EE/ng-l20n.git"
+    },
+    "bugs": "https://github.com/EE/ng-l20n/issues",
+    "devDependencies": {
+        "grunt": "~0.4.1",
+        "grunt-contrib-clean": "~0.5.0",
+        "grunt-contrib-copy": "~0.4.1",
+        "grunt-contrib-jshint": "~0.6.0",
+        "grunt-contrib-uglify": "~0.2.4",
+        "grunt-jsonlint": "~1.0.0",
+        "grunt-merge-conflict": "~0.0.2",
+        "grunt-notify": "~0.2.4",
+        "load-grunt-tasks": "~0.1.0"
+    },
+    "engines": {
+        "node": ">=0.10.20"
+    }
+}

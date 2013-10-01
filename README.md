@@ -12,10 +12,27 @@ use `data-l10n-id` instead) so tutorials from http://l20n.org still apply with t
 An example sandbox is included. You can freely use Angular expressions inside the attribute, they will be parsed for
 you before passing to l20n.
 
-License
--------
+Minification and linting
+------------------------
 
-The module is available under the MIT license (see MIT-LICENSE.txt for details).
+Minification and linting is supported via Grunt tasks. To obtain the minified file together with the
+sourcemap, first install a global `grunt-cli` package:
+
+```bash
+npm -g install grunt-cli
+```
+
+Then install local `npm` packages:
+```bash
+npm install
+```
+
+After performing these steps, invoking:
+```bash
+grunt
+```
+will lint & build the files; you can copy all 3 files (`ng-l20n.js`, `ng-l20n.min.js`, `ng-l20n.min.map`)
+from the `dist/` folder.
 
 Notes
 -----
@@ -30,3 +47,8 @@ with ng-l20n you need to use a very recent `l20n.js` version (the one at commit
 or newer), newer than any currently (as of 2013-10-01) available beta. You can use the
 [version from this repository](https://github.com/EE/ng-l20n/blob/master/vendor/l20n.js)
 if in doubt.
+
+License
+-------
+
+The module is available under the MIT license (see MIT-LICENSE.txt for details).

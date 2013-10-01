@@ -9,13 +9,13 @@
     "noarg": true,
     "noempty": true,
     "nonew": true,
-    "onevar": true,
     "strict": true,
     "trailing": true,
     "undef": true,
     "unused": true,
 
-    "node": true,
+    "esnext": true,
+    "browser": true,
     "devel": true,
     "jquery": true,
 
@@ -24,5 +24,7 @@
     "maxerr": 50,
     "maxlen": 120,
 
-    "globals": {}
+    "globals": {
+        "angular": false
+    }
 }
