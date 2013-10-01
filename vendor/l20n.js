@@ -52,7 +52,7 @@ function req(leaf, name) {
 
 // for the top-level required modules, leaf is null
 var require = req.bind(null, null);
-define('l20n/html', function(require, exports, module) {
+define('l20n/html', function(require) {
   'use strict';
 
   var L20n = require('../l20n');
@@ -66,13 +66,39 @@ define('l20n/html', function(require, exports, module) {
   // each localization should decide which direction it wants to use
   var rtlLocales = ['ar', 'fa', 'he', 'ps', 'ur'];
 
+  // absolute URLs start with a slash or contain a colon (for schema)
+  var reAbsolute = /^\/|:/;
+
+  var whitelist = {
+    elements: [
+      'a', 'em', 'strong', 'small', 's', 'cite', 'q', 'dfn', 'abbr', 'data',
+      'time', 'code', 'var', 'samp', 'kbd', 'sub', 'sup', 'i', 'b', 'u',
+      'mark', 'ruby', 'rt', 'rp', 'bdi', 'bdo', 'span', 'br', 'wbr'
+    ],
+    attributes: {
+      global: [ 'title', 'aria-label' ],
+      a: [ 'download' ],
+      area: [ 'download', 'alt' ],
+      // value is special-cased in isAttrAllowed
+      input: [ 'alt', 'placeholder' ],
+      menuitem: [ 'label' ],
+      menu: [ 'label' ],
+      optgroup: [ 'label' ],
+      option: [ 'label' ],
+      track: [ 'label' ],
+      img: [ 'alt' ],
+      textarea: [ 'placeholder' ],
+      th: [ 'abbr']
+    }
+  };
+
   var documentLocalized = false;
 
   bootstrap();
 
   function bootstrap() {
     var headNode = document.head;
-    var data = 
+    var data =
       headNode.querySelector('script[type="application/l10n-data+json"]');
     if (data) {
       ctx.updateData(JSON.parse(data.textContent));
@@ -81,7 +107,7 @@ define('l20n/html', function(require, exports, module) {
     if (scripts.length) {
       for (var i = 0; i < scripts.length; i++) {
         if (scripts[i].hasAttribute('src')) {
-          ctx.linkResource(scripts[i].getAttribute('src'));
+          ctx.linkResource(scripts[i].src);
         } else {
           ctx.addResource(scripts[i].textContent);
         }
@@ -91,7 +117,7 @@ define('l20n/html', function(require, exports, module) {
       var link = headNode.querySelector('link[rel="localization"]');
       if (link) {
         // XXX add errback
-        loadManifest(link.getAttribute('href'));
+        loadManifest(link.href);
       } else {
         console.warn('L20n: No resources found. (Put them above l20n.js.)');
       }
@@ -197,21 +223,15 @@ define('l20n/html', function(require, exports, module) {
   }
 
   function relativeToManifest(manifestUrl, url) {
-    if (url[0] == '/') {
+    if (reAbsolute.test(url)) {
       return url;
     }
     var dirs = manifestUrl.split('/')
-                          .slice(0, -1)
-                          .concat(url.split('/'))
-                          .filter(function(elem) {
-                            return elem !== '.';
-                          });
-
-    if (dirs[0] !== '' && dirs[0] !== '..') {
-      // if the manifest path doesn't start with / or ..
-      dirs.unshift('.');
-    }
-
+      .slice(0, -1)
+      .concat(url.split('/'))
+      .filter(function(elem) {
+        return elem !== '.';
+      });
     return dirs.join('/');
   }
 
@@ -259,101 +279,183 @@ define('l20n/html', function(require, exports, module) {
     if (!entity) {
       return;
     }
-    for (var key in entity.attributes) {
-      node.setAttribute(camelCaseToDashed(key), entity.attributes[key]);
-    }
     if (entity.value) {
-      if (node.hasAttribute('data-l10n-overlay')) {
-        overlayNode(node, entity.value);
-      } else {
+      // if there is no HTML in the translation nor no HTML entities are used, 
+      // just replace the textContent
+      if (entity.value.indexOf('<') === -1 &&
+          entity.value.indexOf('&') === -1) {
         node.textContent = entity.value;
+      } else {
+        // otherwise, start with an inert template element and move its 
+        // children into `node` but such that `node`'s own children are not 
+        // replaced
+        var translation = document.createElement('template');
+        translation.innerHTML = entity.value;
+        // overlay the node with the DocumentFragment
+        overlayElement(node, translation.content);
       }
     }
-    // readd data-l10n-attrs
-    // secure attribute access
+    Object.keys(entity.attributes).forEach(function(key) {
+      var attrName = camelCaseToDashed(key);
+      if (isAttrAllowed({ name: attrName }, node)) {
+        node.setAttribute(attrName, entity.attributes[key]);
+      }
+    });
   }
 
-  function overlayNode(node, value) {
-    // This code operates on three DOMFragments:
-    //
-    // node - the fragment that is currently attached to the document
-    //
-    // sourceNode - in retranslation case, we need to store the original
-    // node from before translation, in order to properly apply path matchings
-    //
-    // l10nNode - new fragment from which translated values are taken
-    // and applied to the sourceNode for matching nodes
+  // The goal of overlayElement is to move the children of `translationElement` 
+  // into `sourceElement` such that `sourceElement`'s own children are not 
+  // replaced, but onle have their text nodes and their attributes modified.
+  //
+  // We want to make it possible for localizers to apply text-level semantics to
+  // the translations and make use of HTML entities.  At the same time, we 
+  // don't trust translations so we need to filter unsafe elements and 
+  // attribtues out and we don't want to break the Web by replacing elements to 
+  // which third-party code might have created references (e.g. two-way 
+  // bindings in MVC frameworks).
+  function overlayElement(sourceElement, translationElement) {
+    var result = new DocumentFragment();
 
-    var sourceNode = node._l20nSourceNode || node.cloneNode(true);
-    var l10nNode = document.createElement('div');
+    var childElement;
+    while (childElement = sourceElement.children[0]) {
+      // for each child element, try to find a corresponding element in the 
+      // translation and 1) move all nodes preceding it into `result` and 2) 
+      // move the child element from `sourceElement` into `result` and modify 
+      // its text nodes and attributes (see `insertUntil` for details);
+      // the original child into `result` 
+      // XXX sadly, this assumes a specific order of child elements in the 
+      // transaltion; https://bugzil.la/922576
+      insertUntil(childElement, translationElement, result);
+    }
 
-    l10nNode.innerHTML = value;
+    // also handle the nodes in `translationElement` which are directly before 
+    // the end of it
+    insertUntil(null, translationElement, result);
 
-    var children = l10nNode.getElementsByTagName('*');
-    for (var i = 0, child; child = children[i]; i++) {
-      var path = getPathTo(child, l10nNode);
-      var sourceChild = getElementByPath(path, sourceNode);
-      if (!sourceChild) {
-        continue;
-      }
+    // clear `sourceElement` and append `result` which by this time contains 
+    // `sourceElement`'s original children, overlayed with translation
+    sourceElement.textContent = '';
+    sourceElement.appendChild(result);
 
-      for (var k = 0, sourceAttr; sourceAttr = sourceChild.attributes[k]; k++) {
-        if (!child.hasAttribute(sourceAttr.name)) {
-          child.setAttribute(sourceAttr.nodeName, sourceAttr.value);
+    // if we're overlaying a nested element, translate the whitelisted 
+    // attributes; top-level attributes are handled in `translateNode`
+    // XXX attributes previously set here for another language should be 
+    // cleared if a new language doesn't use them; https://bugzil.la/922577
+    if (translationElement.attributes) {
+      for (var k = 0, attr; attr = translationElement.attributes[k]; k++) {
+        if (isAttrAllowed(attr, sourceElement)) {
+          sourceElement.setAttribute(attr.name, attr.value);
         }
       }
     }
-
-    node._l20nSourceNode = sourceNode;
-    node.innerHTML = l10nNode.innerHTML;
   }
 
-
-  function getPathTo(element, context) {
-    var TYPE_ELEMENT = 1;
-
-    if (element === context) {
-      return '.';
+  function insertUntil(sourceChild, translationElement, result) {
+    var untilElement;
+    if (sourceChild) {
+      // try to find an element in the translation node corresponding to the 
+      // sourceChild in the source
+      untilElement = getElementOfType(translationElement, sourceChild,
+                                      getIndexOfType(sourceChild));
     }
-
-    var id = element.getAttribute('id');
-    if (id) {
-      return '*[@id="' + id + '"]';
-    }
-
-    var l10nPath = element.getAttribute('data-l10n-path');
-    if (l10nPath) {
-      element.removeAttribute('data-l10n-path');
-      return l10nPath;
-    }
-
-    var index = 0;
-    var siblings = element.parentNode.childNodes;
-    for (var i = 0, sibling; sibling = siblings[i]; i++) {
-      if (sibling === element) {
-        var pathToParent = getPathTo(element.parentNode, context);
-        return pathToParent + '/' + element.tagName + '[' + (index + 1) + ']';
+    var child;
+    while (child = translationElement.childNodes[0]) {
+      if (child === untilElement) {
+        // we want to reuse the existing sourceChild instead of replacing it 
+        // with the translation element
+        overlayElement(sourceChild, translationElement.removeChild(child));
+        result.insertBefore(sourceChild, null);
+        // we've reached the untilElement, we're done
+        return;
+      } else if (!child.tagName) {
+        // it's a text node
+        result.insertBefore(translationElement.removeChild(child), null);
+      } else {
+        // XXX the whitelist should be amendable; https://bugzil.la/922573
+        if (whitelist.elements.indexOf(child.tagName.toLowerCase()) !== -1) {
+          // if it's one of the safe whitelisted elements
+          result.insertBefore(translationElement.removeChild(child), null);
+          for (var k = 0, attr; attr = child.attributes[k]; k++) {
+            if (!isAttrAllowed(attr, child)) {
+              child.removeAttribute(attr.name);
+            }
+          }
+        } else {
+          // otherwise just take this child's textContent
+          translationElement.removeChild(child);
+          var text = new Text(child.textContent);
+          result.insertBefore(text, null);
+        }
       }
-      if (sibling.nodeType === TYPE_ELEMENT && 
-          sibling.tagName === element.tagName) {
+    }
+    // no more children in the translation, but untilElement hasn't been found;
+    // remove the sourceChild from its parent;  the translation doesn't need 
+    // it, or is broken
+    if (sourceChild) {
+      sourceChild.parentNode.removeChild(sourceChild);
+    }
+  }
+
+  function isAttrAllowed(attr, element) {
+    var attrName = attr.name.toLowerCase();
+    var tagName = element.tagName.toLowerCase();
+    // is it a globally safe attribute?
+    if (whitelist.attributes.global.indexOf(attrName) !== -1) {
+      return true;
+    }
+    // are there no whitelisted attributes for this element?
+    if (!whitelist.attributes[tagName]) {
+      return false;
+    }
+    // is it allowed on this element?
+    // XXX the whitelist should be amendable; https://bugzil.la/922573
+    if (whitelist.attributes[tagName].indexOf(attrName) !== -1) {
+      return true;
+    }
+    // special case for value on inputs with type button, reset, submit
+    if (tagName === 'input' && attrName === 'value') {
+      var type = element.type.toLowerCase();
+      if (type === 'submit' || type === 'button' || type === 'reset') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getIndexOfType(element) {
+    var index = 0;
+    var child;
+    while (child = element.previousElementSibling) {
+      if (child.tagName === element.tagName) {
         index++;
       }
     }
-
-    throw "Can't find the path to element " + element;
+    return index;
   }
 
-  function getElementByPath(path, context) {
-    var xpe = document.evaluate(path, context, null,
-                                XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-    return xpe.singleNodeValue;
+  // ideally, we'd use querySelector(':scope > ELEMENT:nth-of-type(index)'),
+  // but 1) :scope is not widely supported yet and 2) it doesn't work with 
+  // DocumentFragments.  :scope is needed to query only immediate children
+  // https://developer.mozilla.org/en-US/docs/Web/CSS/:scope
+  function getElementOfType(context, element, index) {
+    var nthOfType = 0;
+    for (var i = 0, child; child = context.children[i]; i++) {
+      if (child.nodeType === Node.ELEMENT_NODE &&
+          child.tagName === element.tagName) {
+        if (nthOfType === index) {
+          return child;
+        }
+        nthOfType++;
+      }
+    }
+    return null;
   }
 
   // same as exports = L20n;
   return L20n;
 
 });
-define('l20n', function(require, exports, module) {
+define('l20n', function(require, exports) {
   'use strict';
 
   var Context = require('./l20n/context').Context;
@@ -368,7 +470,7 @@ define('l20n', function(require, exports, module) {
   };
 
 });
-define('l20n/context', function(require, exports, module) {
+define('l20n/context', function(require, exports) {
   'use strict';
 
   var EventEmitter = require('./events').EventEmitter;
@@ -394,6 +496,8 @@ define('l20n/context', function(require, exports, module) {
     this.build = build;
 
     var _imports_positions = [];
+    // absolute URLs start with a slash or contain a colon (for schema)
+    var reAbsolute = /^\/|:/;
 
     function build(nesting, callback, sync) {
       if (nesting >= 7) {
@@ -423,7 +527,7 @@ define('l20n/context', function(require, exports, module) {
 
       function buildImports() {
         var imports = self.ast.body.filter(function(elem, i) {
-          if (elem.type == 'ImportStatement') {
+          if (elem.type === 'ImportStatement') {
             _imports_positions.push(i);
             return true;
           }
@@ -450,7 +554,7 @@ define('l20n/context', function(require, exports, module) {
             return callback(err);
           }
           importsToBuild--;
-          if (importsToBuild == 0) {
+          if (importsToBuild === 0) {
             flatten();
           }
         }
@@ -467,19 +571,17 @@ define('l20n/context', function(require, exports, module) {
     }
 
     function relativeToSelf(url) {
-      if (self.id === null || url[0] == '/') {
+      if (self.id === null || reAbsolute.test(url)) {
         return url;
-      } 
-      var dirname = self.id.split('/').slice(0, -1).join('/');
-      if (dirname) {
-        // strip the trailing slash if present
-        if (dirname[dirname.length - 1] == '/') {
-          dirname = dirname.slice(0, dirname.length - 1);
-        }
-        return dirname + '/' + url;
-      } else {
-        return './' + url;
       }
+      var dirs = self.id.split('/')
+        .slice(0, -1)
+        .concat(url.split('/'))
+        .filter(function(elem) {
+          return elem !== '.';
+        });
+
+      return dirs.join('/');
     }
 
   }
@@ -521,12 +623,12 @@ define('l20n/context', function(require, exports, module) {
           emitter.emit(err instanceof ContextError ? 'error' : 'warning', err);
         }
         resourcesToBuild--;
-        if (resourcesToBuild == 0) {
-          if (resourcesWithErrors == self.resources.length) {
+        if (resourcesToBuild === 0) {
+          if (resourcesWithErrors === self.resources.length) {
             // XXX Bug 908780 - Decide what to do when all resources in 
             // a locale are missing or broken
             // https://bugzilla.mozilla.org/show_bug.cgi?id=908780
-            emitter.emit('error', 
+            emitter.emit('error',
                          new ContextError('Locale has no valid resources'));
           }
           flatten();
@@ -549,14 +651,16 @@ define('l20n/context', function(require, exports, module) {
       }
     }
 
-    function getEntry(id) { 
+    function getEntry(id) {
+      /* jshint validthis: true */
       if (this.entries.hasOwnProperty(id)) {
         return this.entries[id];
       }
       return undefined;
     }
 
-    function hasResource(uri) { 
+    function hasResource(uri) {
+      /* jshint validthis: true */
       return this.resources.some(function(res) {
         return res.id === uri;
       });
@@ -579,8 +683,8 @@ define('l20n/context', function(require, exports, module) {
     this.localize = localize;
     this.ready = ready;
 
-    this.addEventListener = addEventListener;
-    this.removeEventListener = removeEventListener;
+    this.addEventListener = addEvent;
+    this.removeEventListener = removeEvent;
 
     Object.defineProperty(this, 'supportedLocales', {
       get: function() { return _fallbackChain.slice(); },
@@ -612,7 +716,6 @@ define('l20n/context', function(require, exports, module) {
 
     var _retr = new RetranslationManager();
 
-    var _listeners = [];
     var self = this;
 
     _parser.addEventListener('error', error);
@@ -620,22 +723,22 @@ define('l20n/context', function(require, exports, module) {
     _compiler.setGlobals(_retr.globals);
 
     function extend(dst, src) {
-      for (var i in src) {
-        if (src[i] === undefined) {
+      Object.keys(src).forEach(function(key) {
+        if (src[key] === undefined) {
           // un-define (remove) the property from dst
-          delete dst[i];
-        } else if (typeof src[i] !== 'object') {
+          delete dst[key];
+        } else if (typeof src[key] !== 'object') {
           // if the source property is a primitive, just copy it overwriting 
           // whatever the destination property is
-          dst[i] = src[i];
+          dst[key] = src[key];
         } else {
           // if the source property is an object, deep-copy it recursively
-          if (typeof dst[i] !== 'object') {
-            dst[i] = {};
+          if (typeof dst[key] !== 'object') {
+            dst[key] = {};
           }
-          extend(dst[i], src[i]);
+          extend(dst[key], src[key]);
         }
-      }
+      });
     }
 
     function updateData(obj) {
@@ -670,14 +773,15 @@ define('l20n/context', function(require, exports, module) {
       if (_isReady) {
         setTimeout(callback);
       }
-      addEventListener('ready', callback);
+      addEvent('ready', callback);
     }
 
     function bindLocalize(ids, callback, reason) {
+      /* jshint validthis: true */
 
       var bound = {
         // stop: fn
-        extend: function extend(newIds) { 
+        extend: function extend(newIds) {
           for (var i = 0; i < newIds.length; i++) {
             if (ids.indexOf(newIds[i]) === -1) {
               ids.push(newIds[i]);
@@ -739,6 +843,7 @@ define('l20n/context', function(require, exports, module) {
     }
 
     function getMany(ids) {
+      /* jshint validthis: true */
       var many = {
         entities: {},
         globalsUsed: {}
@@ -746,16 +851,19 @@ define('l20n/context', function(require, exports, module) {
       for (var i = 0, id; id = ids[i]; i++) {
         many.entities[id] = getEntity.call(this, id);
         for (var global in many.entities[id].globals) {
-          many.globalsUsed[global] = true;
+          if (many.entities[id].globals.hasOwnProperty(global)) {
+            many.globalsUsed[global] = true;
+          }
         }
       }
       return many;
     }
 
     function getFromLocale(cur, id, data, prevSource) {
+      /* jshint validthis: true */
       var loc = _fallbackChain[cur];
       if (!loc) {
-        error(new RuntimeError('Unable to get translation', id, 
+        error(new RuntimeError('Unable to get translation', id,
                                _fallbackChain));
         // imitate the return value of Compiler.Entity.get
         return {
@@ -781,8 +889,9 @@ define('l20n/context', function(require, exports, module) {
       }
 
       // otherwise, try to get the value of the entry
+      var value;
       try {
-        var value = entry.get(getArgs.call(this, data));
+        value = entry.get(getArgs.call(this, data));
       } catch (e) {
         if (e instanceof Compiler.RuntimeError) {
           error(new TranslationError(e.message, id, _fallbackChain, locale));
@@ -907,7 +1016,7 @@ define('l20n/context', function(require, exports, module) {
         throw new ContextError('Context not ready');
       }
 
-      if (_reslinks.length == 0) {
+      if (_reslinks.length === 0) {
         warn(new ContextError('Context has no resources; not freezing'));
         return;
       }
@@ -928,17 +1037,26 @@ define('l20n/context', function(require, exports, module) {
       // the future we might asynchronously try to query a language pack 
       // service of sorts for its own list of locales supported for this 
       // context
-        if (!_negotiator) {
-          var Intl = require('./intl').Intl;
-          _negotiator = Intl.prioritizeLocales;
-        }
-        _fallbackChain = _negotiator(_registered, _requested, _default);
-        var locale = getLocale(_fallbackChain[0]);
-        if (locale.isReady) {
-          return setReady();
-        } else {
-          return locale.build(setReady);
-        }
+      if (!_negotiator) {
+        var Intl = require('./intl').Intl;
+        _negotiator = Intl.prioritizeLocales;
+      }
+      var fallbackChain = _negotiator(_registered, _requested, _default,
+                                      freeze);
+      // if the negotiator returned something, freeze synchronously
+      if (fallbackChain) {
+        freeze(fallbackChain);
+      }
+    }
+
+    function freeze(fallbackChain) {
+      _fallbackChain = fallbackChain;
+      var locale = getLocale(_fallbackChain[0]);
+      if (locale.isReady) {
+        setReady();
+      } else {
+        locale.build(setReady);
+      }
     }
 
     function setReady() {
@@ -947,11 +1065,11 @@ define('l20n/context', function(require, exports, module) {
       _emitter.emit('ready');
     }
 
-    function addEventListener(type, listener) {
+    function addEvent(type, listener) {
       _emitter.addEventListener(type, listener);
     }
 
-    function removeEventListener(type, listener) {
+    function removeEvent(type, listener) {
       _emitter.removeEventListener(type, listener);
     }
 
@@ -999,7 +1117,7 @@ define('l20n/context', function(require, exports, module) {
   exports.Context = Context;
 
 });
-define('l20n/events', function(require, exports, module) {
+define('l20n/events', function(require, exports) {
   'use strict';
 
   function EventEmitter() {
@@ -1040,7 +1158,7 @@ define('l20n/events', function(require, exports, module) {
   exports.EventEmitter = EventEmitter;
 
 });
-define('l20n/parser', function(require, exports, module) {
+define('l20n/parser', function(require, exports) {
   'use strict';
 
   var EventEmitter = require('./events').EventEmitter;
@@ -1051,8 +1169,8 @@ define('l20n/parser', function(require, exports, module) {
 
     this.parse = parse;
     this.parseString = parseString;
-    this.addEventListener = addEventListener;
-    this.removeEventListener = removeEventListener;
+    this.addEventListener = addEvent;
+    this.removeEventListener = removeEvent;
 
     /* Private */
 
@@ -1204,7 +1322,7 @@ define('l20n/parser', function(require, exports, module) {
         // if there is no {{ at all, it's definitely not a complex string.
         // if there's a \{{, it's not complex either, but we will learn that 
         // lazily in parseString
-        isNotComplex: str.indexOf('{{') === -1 || undefined
+        maybeComplex: str.indexOf('{{') !== -1
       };
     }
 
@@ -1212,8 +1330,8 @@ define('l20n/parser', function(require, exports, module) {
       if (ch === undefined) {
         ch = _source.charAt(_index);
       }
-      if (ch === "'" || ch === '"') {
-        if (ch === _source.charAt(_index + 1) && 
+      if (ch === '\'' || ch === '"') {
+        if (ch === _source.charAt(_index + 1) &&
             ch === _source.charAt(_index + 2)) {
           return getString(ch + ch + ch);
         }
@@ -1426,9 +1544,9 @@ define('l20n/parser', function(require, exports, module) {
       var pos = _source.indexOf('\\');
       while (pos !== -1) {
         nxt = _source.charAt(pos + 1);
-        if (nxt == '"' ||
-            nxt == "'" ||
-            nxt == '\\') {
+        if (nxt === '"' ||
+            nxt === '\'' ||
+            nxt === '\\') {
           _source = _source.substr(0, pos) + _source.substr(pos + 1);
         }
         pos = _source.indexOf('\\', pos + 1);
@@ -1560,16 +1678,16 @@ define('l20n/parser', function(require, exports, module) {
       return getLOL();
     }
 
-    function addEventListener(type, listener) {
+    function addEvent(type, listener) {
       if (!_emitter) {
-        throw Error('Emitter not available');
+        throw new Error('Emitter not available');
       }
       return _emitter.addEventListener(type, listener);
     }
 
-    function removeEventListener(type, listener) {
+    function removeEvent(type, listener) {
       if (!_emitter) {
-        throw Error('Emitter not available');
+        throw new Error('Emitter not available');
       }
       return _emitter.removeEventListener(type, listener);
     }
@@ -1594,7 +1712,7 @@ define('l20n/parser', function(require, exports, module) {
         ++_index;
         if (token.length > 1) {
           ch = _source.charAt(_index);
-          if (token[1] == ch) {
+          if (token[1] === ch) {
             ++_index;
             t += ch;
           } else if (token[2]) {
@@ -1799,7 +1917,7 @@ define('l20n/parser', function(require, exports, module) {
         if (cc === 46 || cc === 91) { // . or [
           ++_index;
           exp = getPropertyExpression(exp, cc === 91);
-        } else if (cc === 58 && 
+        } else if (cc === 58 &&
                    _source.charCodeAt(_index + 1) === 58) { // ::
           _index += 2;
           if (_source.charCodeAt(_index) === 91) { // [
@@ -2117,9 +2235,9 @@ define('l20n/parser', function(require, exports, module) {
 // compiler until a primitive value is returned.  This logic lives in the 
 // `_resolve` function.
 
-define('l20n/compiler', function(require, exports, module) {
-  'use strict';
-
+define('l20n/compiler', function(require, exports) {
+  // TODO change newcap to true?
+  /* jshint strict: false, newcap: false */
   var EventEmitter = require('./events').EventEmitter;
   var Parser = require('./parser').Parser;
 
@@ -2129,8 +2247,8 @@ define('l20n/compiler', function(require, exports, module) {
 
     this.compile = compile;
     this.setGlobals = setGlobals;
-    this.addEventListener = addEventListener;
-    this.removeEventListener = removeEventListener;
+    this.addEventListener = addEvent;
+    this.removeEventListener = removeEvent;
 
     // Private
 
@@ -2155,10 +2273,10 @@ define('l20n/compiler', function(require, exports, module) {
         env = {};
       }
       for (var i = 0, entry; entry = ast.body[i]; i++) {
-        var constructor = _entryTypes[entry.type];
-        if (constructor) {
+        var Constructor = _entryTypes[entry.type];
+        if (Constructor) {
           try {
-            env[entry.id.name] = new constructor(entry, env);
+            env[entry.id.name] = new Constructor(entry, env);
           } catch (e) {
             // rethrow non-compiler errors;
             requireCompilerError(e);
@@ -2174,18 +2292,18 @@ define('l20n/compiler', function(require, exports, module) {
       return true;
     }
 
-    function addEventListener(type, listener) {
+    function addEvent(type, listener) {
       return _emitter.addEventListener(type, listener);
     }
 
-    function removeEventListener(type, listener) {
+    function removeEvent(type, listener) {
       return _emitter.removeEventListener(type, listener);
     }
 
     // utils
 
-    function emit(ctor, message, entry, source) {
-      var e = new ctor(message, entry, source);
+    function emit(Ctor, message, entry, source) {
+      var e = new Ctor(message, entry, source);
       _emitter.emit('error', e);
       return e;
     }
@@ -2209,7 +2327,9 @@ define('l20n/compiler', function(require, exports, module) {
           this.publicAttributes.push(attr.key.name);
         }
       }
-      if (node.value && node.value.isNotComplex) {
+      // if the value is a hash, maybeComplex will be undefined;  strictly 
+      // check for false instead of testing if falsy
+      if (node.value && node.value.maybeComplex === false) {
         this.value = node.value.content;
       } else {
         this.value = Expression(node.value, this, this.index);
@@ -2262,7 +2382,7 @@ define('l20n/compiler', function(require, exports, module) {
       for (var i = 0; i < node.index.length; i++) {
         this.index.push(IndexExpression(node.index[i], this));
       }
-      if (node.value && node.value.isNotComplex) {
+      if (node.value && node.value.maybeComplex === false) {
         this.value = node.value.content;
       } else {
         this.value = Expression(node.value, entity, this.index);
@@ -2308,7 +2428,8 @@ define('l20n/compiler', function(require, exports, module) {
         locals[this.args[i].id.name] = args[i];
       }
       var final = this.expression(locals, ctxdata);
-      locals = final[0], final = final[1];
+      locals = final[0];
+      final = final[1];
       return [locals, _resolve(final, locals, ctxdata)];
     };
 
@@ -2342,7 +2463,7 @@ define('l20n/compiler', function(require, exports, module) {
 
     // The 'dispatcher' expression constructor.  Other expression constructors 
     // call this to create expression functions for their components.  For 
-    // instance, `ConditionalExpression` calls `Expression` to create 
+    // instance, `ConditionalExpression` calls `Expression` to create
     // expression functions for its `test`, `consequent` and `alternate` 
     // symbols.
     function Expression(node, entry, index) {
@@ -2362,8 +2483,8 @@ define('l20n/compiler', function(require, exports, module) {
     function _resolve(expr, locals, ctxdata) {
       // Bail out early if it's a primitive value or `null`.  This is exactly 
       // what we want.
-      if (typeof expr === 'string' || 
-          typeof expr === 'boolean' || 
+      if (typeof expr === 'string' ||
+          typeof expr === 'boolean' ||
           typeof expr === 'number' ||
           !expr) {
         return expr;
@@ -2377,7 +2498,8 @@ define('l20n/compiler', function(require, exports, module) {
       // Check if `expr` is an expression
       if (typeof expr === 'function') {
         var current = expr(locals, ctxdata);
-        locals = current[0], current = current[1];
+        locals = current[0];
+        current = current[1];
         return _resolve(current, locals, ctxdata);
       }
 
@@ -2392,9 +2514,9 @@ define('l20n/compiler', function(require, exports, module) {
 
     }
 
-    function Identifier(node, entry) {
+    function Identifier(node) {
       var name = node.name;
-      return function identifier(locals, ctxdata) {
+      return function identifier(locals) {
         if (!locals.__env__.hasOwnProperty(name)) {
           throw new RuntimeError('Reference to an unknown entry: ' + name);
         }
@@ -2409,12 +2531,12 @@ define('l20n/compiler', function(require, exports, module) {
         return [locals, locals.__this__];
       };
     }
-    function ThisExpression(node, entry) {
-      return function thisExpression(locals, ctxdata) {
+    function ThisExpression() {
+      return function thisExpression(locals) {
         return [locals, locals.__this__];
       };
     }
-    function VariableExpression(node, entry) {
+    function VariableExpression(node) {
       var name = node.id.name;
       return function variableExpression(locals, ctxdata) {
         if (locals.hasOwnProperty(name)) {
@@ -2427,17 +2549,18 @@ define('l20n/compiler', function(require, exports, module) {
         return [locals, ctxdata[name]];
       };
     }
-    function GlobalsExpression(node, entry) {
+    function GlobalsExpression(node) {
       var name = node.id.name;
-      return function globalsExpression(locals, ctxdata) {
+      return function globalsExpression(locals) {
         if (!_globals) {
           throw new RuntimeError('No globals set (tried @' + name + ')');
         }
         if (!_globals.hasOwnProperty(name)) {
           throw new RuntimeError('Reference to an unknown global: ' + name);
         }
+        var value;
         try {
-          var value = _globals[name].get();
+          value = _globals[name].get();
         } catch (e) {
           throw new RuntimeError('Cannot evaluate global ' + name);
         }
@@ -2445,13 +2568,13 @@ define('l20n/compiler', function(require, exports, module) {
         return [locals, value];
       };
     }
-    function NumberLiteral(node, entry) {
-      return function numberLiteral(locals, ctxdata) {
+    function NumberLiteral(node) {
+      return function numberLiteral(locals) {
         return [locals, node.value];
       };
     }
     function StringLiteral(node, entry) {
-      var parsed, complex;
+      var complex;
       return function stringLiteral(locals, ctxdata, key) {
         // if a key was passed, throw;  checking arguments is more reliable 
         // than testing the value of key because if the key comes from context 
@@ -2459,14 +2582,19 @@ define('l20n/compiler', function(require, exports, module) {
         if (arguments.length > 2) {
           throw new RuntimeError('Cannot get property of a string: ' + key);
         }
+        if (!node.maybeComplex) {
+          return [locals, node.content];
+        }
+        // parse the string if there's no cached complex expression
+        var parsed;
         if (!complex) {
           try {
             parsed = _parser.parseString(node.content);
           } catch (e) {
-            throw new ValueError('Malformed string. ' + e.message, entry, 
+            throw new ValueError('Malformed string. ' + e.message, entry,
                                  node.content);
           }
-          if (parsed.type == 'String') {
+          if (parsed.type === 'String') {
             return [locals, parsed.content];
           }
           complex = Expression(parsed, entry);
@@ -2496,7 +2624,7 @@ define('l20n/compiler', function(require, exports, module) {
       // the need to define `dirty` as a variable available in the closure.  
       // Note that the anonymous function is a self-invoked one and it returns 
       // the closure immediately.
-      return function() {
+      return (function() {
         var dirty = false;
         return function complexString(locals, ctxdata) {
           if (dirty) {
@@ -2522,8 +2650,8 @@ define('l20n/compiler', function(require, exports, module) {
             dirty = false;
           }
           return [locals, parts.join('')];
-        }
-      }();
+        };
+      })();
     }
 
     function IndexExpression(node, entry) {
@@ -2532,19 +2660,20 @@ define('l20n/compiler', function(require, exports, module) {
       // This is analogous to `ComplexString` in that an individual index can 
       // only be visited once during the resolution of an Entity.  `dirty` is 
       // set in a closure context of the returned function.
-      return function() {
+      return (function() {
         var dirty = false;
         return function indexExpression(locals, ctxdata) {
           if (dirty) {
             throw new RuntimeError('Cyclic reference detected');
           }
           dirty = true;
+          var retval;
           try {
             // We need to resolve `expression` here so that we catch errors 
             // thrown deep within.  Without `_resolve` we might end up with an 
             // unresolved Entity object, and no "Cyclic reference detected" 
             // error would be thown.
-            var retval = _resolve(expression, locals, ctxdata);
+            retval = _resolve(expression, locals, ctxdata);
           } catch (e) {
             // If it's an `IndexError` thrown deeper within `expression`, it 
             // has already been emitted by its `indexExpression`.  We can 
@@ -2593,8 +2722,8 @@ define('l20n/compiler', function(require, exports, module) {
             dirty = false;
           }
           return [locals, retval];
-        }
-      }();
+        };
+      })();
     }
 
     function HashLiteral(node, entry, index) {
@@ -2628,11 +2757,12 @@ define('l20n/compiler', function(require, exports, module) {
         }
 
         // If no valid key was found, throw an `IndexError`
+        var message;
         if (keysTried.length) {
-          var message = 'Hash key lookup failed ' +
+          message = 'Hash key lookup failed ' +
                         '(tried "' + keysTried.join('", "') + '").';
         } else {
-          var message = 'Hash key lookup failed.';
+          message = 'Hash key lookup failed.';
         }
         throw emit(IndexError, message, entry);
       };
@@ -2640,19 +2770,19 @@ define('l20n/compiler', function(require, exports, module) {
 
 
     function UnaryOperator(token, entry) {
-      if (token == '-') return function negativeOperator(argument) {
+      if (token === '-') return function negativeOperator(argument) {
         if (typeof argument !== 'number') {
           throw new RuntimeError('The unary - operator takes a number');
         }
         return -argument;
       };
-      if (token == '+') return function positiveOperator(argument) {
+      if (token === '+') return function positiveOperator(argument) {
         if (typeof argument !== 'number') {
           throw new RuntimeError('The unary + operator takes a number');
         }
         return +argument;
       };
-      if (token == '!') return function notOperator(argument) {
+      if (token === '!') return function notOperator(argument) {
         if (typeof argument !== 'boolean') {
           throw new RuntimeError('The ! operator takes a boolean');
         }
@@ -2661,47 +2791,49 @@ define('l20n/compiler', function(require, exports, module) {
       throw emit(CompilationError, 'Unknown token: ' + token, entry);
     }
     function BinaryOperator(token, entry) {
-      if (token == '==') return function equalOperator(left, right) {
+      if (token === '==') return function equalOperator(left, right) {
         if ((typeof left !== 'number' || typeof right !== 'number') &&
             (typeof left !== 'string' || typeof right !== 'string')) {
           throw new RuntimeError('The == operator takes two numbers or ' +
                                  'two strings');
         }
-        return left == right;
+        return left === right;
       };
-      if (token == '!=') return function notEqualOperator(left, right) {
+      if (token === '!=') return function notEqualOperator(left, right) {
         if ((typeof left !== 'number' || typeof right !== 'number') &&
             (typeof left !== 'string' || typeof right !== 'string')) {
           throw new RuntimeError('The != operator takes two numbers or ' +
                                  'two strings');
         }
-        return left != right;
+        return left !== right;
       };
-      if (token == '<') return function lessThanOperator(left, right) {
+      if (token === '<') return function lessThanOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The < operator takes two numbers');
         }
         return left < right;
       };
-      if (token == '<=') return function lessThanEqualOperator(left, right) {
+      if (token === '<=') return function lessThanEqualOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The <= operator takes two numbers');
         }
         return left <= right;
       };
-      if (token == '>') return function greaterThanOperator(left, right) {
+      if (token === '>') return function greaterThanOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The > operator takes two numbers');
         }
         return left > right;
       };
-      if (token == '>=') return function greaterThanEqualOperator(left, right) {
-        if (typeof left !== 'number' || typeof right !== 'number') {
-          throw new RuntimeError('The >= operator takes two numbers');
-        }
-        return left >= right;
-      };
-      if (token == '+') return function addOperator(left, right) {
+      if (token === '>=') {
+        return function greaterThanEqualOperator(left, right) {
+          if (typeof left !== 'number' || typeof right !== 'number') {
+            throw new RuntimeError('The >= operator takes two numbers');
+          }
+          return left >= right;
+        };
+      }
+      if (token === '+') return function addOperator(left, right) {
         if ((typeof left !== 'number' || typeof right !== 'number') &&
             (typeof left !== 'string' || typeof right !== 'string')) {
           throw new RuntimeError('The + operator takes two numbers or ' +
@@ -2709,32 +2841,32 @@ define('l20n/compiler', function(require, exports, module) {
         }
         return left + right;
       };
-      if (token == '-') return function substractOperator(left, right) {
+      if (token === '-') return function substractOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The - operator takes two numbers');
         }
         return left - right;
       };
-      if (token == '*') return function multiplyOperator(left, right) {
+      if (token === '*') return function multiplyOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The * operator takes two numbers');
         }
         return left * right;
       };
-      if (token == '/') return function devideOperator(left, right) {
+      if (token === '/') return function devideOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The / operator takes two numbers');
         }
-        if (right == 0) {
+        if (right === 0) {
           throw new RuntimeError('Division by zero not allowed.');
         }
         return left / right;
       };
-      if (token == '%') return function moduloOperator(left, right) {
+      if (token === '%') return function moduloOperator(left, right) {
         if (typeof left !== 'number' || typeof right !== 'number') {
           throw new RuntimeError('The % operator takes two numbers');
         }
-        if (right == 0) {
+        if (right === 0) {
           throw new RuntimeError('Modulo zero not allowed.');
         }
         return left % right;
@@ -2742,13 +2874,13 @@ define('l20n/compiler', function(require, exports, module) {
       throw emit(CompilationError, 'Unknown token: ' + token, entry);
     }
     function LogicalOperator(token, entry) {
-      if (token == '&&') return function andOperator(left, right) {
+      if (token === '&&') return function andOperator(left, right) {
         if (typeof left !== 'boolean' || typeof right !== 'boolean') {
           throw new RuntimeError('The && operator takes two booleans');
         }
         return left && right;
       };
-      if (token == '||') return function orOperator(left, right) {
+      if (token === '||') return function orOperator(left, right) {
         if (typeof left !== 'boolean' || typeof right !== 'boolean') {
           throw new RuntimeError('The || operator takes two booleans');
         }
@@ -2769,7 +2901,7 @@ define('l20n/compiler', function(require, exports, module) {
       var right = Expression(node.right, entry);
       return function binaryExpression(locals, ctxdata) {
         return [locals, operator(
-          _resolve(left, locals, ctxdata), 
+          _resolve(left, locals, ctxdata),
           _resolve(right, locals, ctxdata)
         )];
       };
@@ -2780,10 +2912,10 @@ define('l20n/compiler', function(require, exports, module) {
       var right = Expression(node.right, entry);
       return function logicalExpression(locals, ctxdata) {
         return [locals, operator(
-          _resolve(left, locals, ctxdata), 
+          _resolve(left, locals, ctxdata),
           _resolve(right, locals, ctxdata)
         )];
-      }
+      };
     }
     function ConditionalExpression(node, entry) {
       var test = Expression(node.test, entry);
@@ -2792,7 +2924,7 @@ define('l20n/compiler', function(require, exports, module) {
       return function conditionalExpression(locals, ctxdata) {
         var tested = _resolve(test, locals, ctxdata);
         if (typeof tested !== 'boolean') {
-          throw new RuntimeError('Conditional expressions must test a ' + 
+          throw new RuntimeError('Conditional expressions must test a ' +
                                  'boolean');
         }
         if (tested === true) {
@@ -2815,7 +2947,8 @@ define('l20n/compiler', function(require, exports, module) {
         }
         // callee is an expression pointing to a macro, e.g. an identifier
         var macro = callee(locals, ctxdata);
-        locals = macro[0], macro = macro[1];
+        locals = macro[0];
+        macro = macro[1];
         if (!macro.expression) {
           throw new RuntimeError('Expected a macro, got a non-callable.');
         }
@@ -2832,7 +2965,8 @@ define('l20n/compiler', function(require, exports, module) {
       return function propertyExpression(locals, ctxdata) {
         var prop = _resolve(property, locals, ctxdata);
         var parent = expression(locals, ctxdata);
-        locals = parent[0], parent = parent[1];
+        locals = parent[0];
+        parent = parent[1];
 
         // At this point, `parent` can be anything and we need to do some 
         // type-checking to handle erros gracefully (bug 883664) and securely 
@@ -2873,9 +3007,9 @@ define('l20n/compiler', function(require, exports, module) {
         }
 
         // otherwise it's a primitive
-        throw new RuntimeError('Cannot get property of a ' + typeof parent + 
+        throw new RuntimeError('Cannot get property of a ' + typeof parent +
                                ': ' + prop);
-      }
+      };
     }
     function AttributeExpression(node, entry) {
       var expression = Expression(node.expression, entry);
@@ -2885,7 +3019,8 @@ define('l20n/compiler', function(require, exports, module) {
       return function attributeExpression(locals, ctxdata) {
         var attr = _resolve(attribute, locals, ctxdata);
         var entity = expression(locals, ctxdata);
-        locals = entity[0], entity = entity[1];
+        locals = entity[0];
+        entity = entity[1];
         if (!entity.attributes) {
           throw new RuntimeError('Cannot get attribute of a non-entity: ' +
                                  attr);
@@ -2894,7 +3029,7 @@ define('l20n/compiler', function(require, exports, module) {
           throw new RuntimeError(entity.id + ' has no attribute ' + attr);
         }
         return [locals, entity.attributes[attr]];
-      }
+      };
     }
     function ParenthesisExpression(node, entry) {
       return Expression(node.expression, entry);
@@ -2933,7 +3068,7 @@ define('l20n/compiler', function(require, exports, module) {
   function RuntimeError(message) {
     CompilerError.call(this, message);
     this.name = 'RuntimeError';
-  };
+  }
   RuntimeError.prototype = Object.create(CompilerError.prototype);
   RuntimeError.prototype.constructor = RuntimeError;
 
@@ -2959,7 +3094,7 @@ define('l20n/compiler', function(require, exports, module) {
     RuntimeError.call(this, message);
     this.name = 'IndexError';
     this.entry = entry.id;
-  };
+  }
   IndexError.prototype = Object.create(RuntimeError.prototype);
   IndexError.prototype.constructor = IndexError;
 
@@ -2972,10 +3107,8 @@ define('l20n/compiler', function(require, exports, module) {
   exports.Compiler = Compiler;
 
 });
-define('l20n/retranslation', function(require, exports, module) {
+define('l20n/retranslation', function(require, exports) {
   'use strict';
-
-  var EventEmitter = require('./events').EventEmitter;
 
   function RetranslationManager() {
     var _usage = [];
@@ -2987,17 +3120,18 @@ define('l20n/retranslation', function(require, exports, module) {
     this.all = all;
     this.globals = {};
 
-    for (var i in RetranslationManager._constructors) {
-      initGlobal.call(this, RetranslationManager._constructors[i]);
-    }
+    RetranslationManager._constructors.forEach(function(ctor) {
+      initGlobal.call(this, ctor);
+    }, this);
 
-    function initGlobal(globalCtor) {
-      var global = new globalCtor();
+    function initGlobal(GlobalCtor) {
+      /* jshint validthis: true */
+      var global = new GlobalCtor();
       this.globals[global.id] = global;
       if (!global.activate) {
         return;
       }
-      _counter[global.id] = 0; 
+      _counter[global.id] = 0;
       global.addEventListener('change', function(id) {
         for (var i = 0; i < _usage.length; i++) {
           if (_usage[i] && _usage[i].globals.indexOf(id) !== -1) {
@@ -3005,12 +3139,13 @@ define('l20n/retranslation', function(require, exports, module) {
             _usage[i].callback({
               global: global.id
             });
-          }  
+          }
         }
       });
-    };
+    }
 
     function bindGet(get, isRebind) {
+      /* jshint validthis: true */
       var i;
       // store the callback in case we want to retranslate the whole context
       var inCallbacks;
@@ -3034,9 +3169,11 @@ define('l20n/retranslation', function(require, exports, module) {
           break;
         }
       }
+
+      var added;
       if (!bound) {
         // it's the first time we see this get
-        if (get.globals.length != 0) {
+        if (get.globals.length !== 0) {
           _usage.push(get);
           get.globals.forEach(function(id) {
             if (!this.globals[id].activate) {
@@ -3050,7 +3187,7 @@ define('l20n/retranslation', function(require, exports, module) {
         // if we rebinding the callback, don't remove globals
         // because we're just adding new entities to the bind
         bound.callback = get.callback;
-        var added = get.globals.filter(function(id) {
+        added = get.globals.filter(function(id) {
           return this.globals[id].activate && bound.globals.indexOf(id) === -1;
         }, this);
         added.forEach(function(id) {
@@ -3058,12 +3195,12 @@ define('l20n/retranslation', function(require, exports, module) {
           this.globals[id].activate();
         }, this);
         bound.globals = bound.globals.concat(added);
-      } else if (get.globals.length == 0) {
+      } else if (get.globals.length === 0) {
         // after a retranslation, no globals were used; remove the callback
         delete _usage[i];
       } else {
         // see which globals were added and which ones were removed
-        var added = get.globals.filter(function(id) {
+        added = get.globals.filter(function(id) {
           return this.globals[id].activate && bound.globals.indexOf(id) === -1;
         }, this);
         added.forEach(function(id) {
@@ -3075,7 +3212,7 @@ define('l20n/retranslation', function(require, exports, module) {
         }, this);
         removed.forEach(function(id) {
           _counter[id]--;
-          if (_counter[id] == 0) {
+          if (_counter[id] === 0) {
             this.globals[id].deactivate();
           }
         }, this);
@@ -3084,9 +3221,10 @@ define('l20n/retranslation', function(require, exports, module) {
     }
 
     function unbindGet(id) {
+      /* jshint validthis: true */
       var bound;
       var usagePos = -1;
-      for (i = 0; i < _usage.length; i++) {
+      for (var i = 0; i < _usage.length; i++) {
         if (_usage[i] && _usage[i].id === id) {
           bound = _usage[i];
           usagePos = i;
@@ -3097,7 +3235,7 @@ define('l20n/retranslation', function(require, exports, module) {
         bound.globals.forEach(function(id) {
           if (this.globals[id].activate) {
             _counter[id]--;
-            if (_counter[id] == 0) {
+            if (_counter[id] === 0) {
               this.globals[id].deactivate();
             }
           }
@@ -3128,10 +3266,17 @@ define('l20n/retranslation', function(require, exports, module) {
     RetranslationManager._constructors.push(ctor);
   };
 
+  RetranslationManager.deregisterGlobal = function(ctor) {
+    var pos = RetranslationManager._constructors.indexOf(ctor);
+    if (pos !== -1) {
+      RetranslationManager._constructors.splice(pos, 1);
+    }
+  };
+
   exports.RetranslationManager = RetranslationManager;
 
 });
-define('l20n/platform/globals', function(require, exports, module) {
+define('l20n/platform/globals', function(require, exports) {
   'use strict';
 
   var EventEmitter = require('../events').EventEmitter;
@@ -3174,10 +3319,19 @@ define('l20n/platform/globals', function(require, exports, module) {
     Global.call(this);
     this.id = 'screen';
     this._get = _get;
-    this.activate = activate;
-    this.deactivate = deactivate;
 
-    var self = this;
+    this.activate = function activate() {
+      if (!this.isActive) {
+        window.addEventListener('resize', onchange);
+        this.isActive = true;
+      }
+    };
+
+    this.deactivate = function deactivate() {
+      window.removeEventListener('resize', onchange);
+      this.value = null;
+      this.isActive = false;
+    };
 
     function _get() {
       return {
@@ -3187,18 +3341,7 @@ define('l20n/platform/globals', function(require, exports, module) {
       };
     }
 
-    function activate() {
-      if (!this.isActive) {
-        window.addEventListener('resize', onchange);
-        this.isActive = true;
-      }
-    }
-
-    function deactivate() {
-      window.removeEventListener('resize', onchange);
-      this.value = null;
-      this.isActive = false;
-    }
+    var self = this;
 
     function onchange() {
       self.value = _get();
@@ -3222,7 +3365,7 @@ define('l20n/platform/globals', function(require, exports, module) {
       if (/^Linux/.test(navigator.platform)) {
         return 'linux';
       }
-      if (/^Win/.test(navigatgor.platform)) {
+      if (/^Win/.test(navigator.platform)) {
         return 'win';
       }
       return 'unknown';
@@ -3237,27 +3380,8 @@ define('l20n/platform/globals', function(require, exports, module) {
     Global.call(this);
     this.id = 'hour';
     this._get = _get;
-    this.activate = activate;
-    this.deactivate = deactivate;
 
-    var self = this;
-    var interval = 60 * 60 * 1000;
-    var I = null;
-
-    function _get() {
-      var time = new Date();
-      return time.getHours();
-    }
-
-    function onchange() {
-      var time = new Date();
-      if (time.getHours() !== self.value) {
-        self.value = time.getHours();
-        self._emitter.emit('change', self.id);
-      }
-    }
-
-    function activate() {
+    this.activate = function activate() {
       if (!this.isActive) {
         var time = new Date();
         I = setTimeout(function() {
@@ -3266,14 +3390,32 @@ define('l20n/platform/globals', function(require, exports, module) {
         }, interval - (time.getTime() % interval));
         this.isActive = true;
       }
-    }
+    };
 
-    function deactivate() {
+    this.deactivate = function deactivate() {
       clearInterval(I);
       this.value = null;
       this.isActive = false;
+    };
+
+    function _get() {
+      var time = new Date();
+      return time.getHours();
     }
 
+    var self = this;
+    var interval = 60 * 60 * 1000;
+    var I = null;
+
+
+
+    function onchange() {
+      var time = new Date();
+      if (time.getHours() !== self.value) {
+        self.value = time.getHours();
+        self._emitter.emit('change', self.id);
+      }
+    }
   }
 
   HourGlobal.prototype = Object.create(Global.prototype);
@@ -3286,44 +3428,26 @@ define('l20n/platform/globals', function(require, exports, module) {
   exports.Global = Global;
 
 });
-define('l20n/platform/io', function(require, exports, module) {
+define('l20n/platform/io', function(require, exports) {
   'use strict';
 
   exports.load = function load(url, callback, sync) {
-    if (sync) {
-      return loadSync(url, callback);
-    }
     var xhr = new XMLHttpRequest();
     if (xhr.overrideMimeType) {
       xhr.overrideMimeType('text/plain');
     }
-    xhr.addEventListener('load', function() {
-      if (xhr.status == 200 || xhr.status == 0) {
-        callback(null, xhr.responseText);
-      } else {
-        var ex = new IOError('Not found: ' + url);
-        callback(ex);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200 || xhr.status === 0) {
+          callback(null, xhr.responseText);
+        } else {
+          var ex = new IOError('Not found: ' + url);
+          callback(ex);
+        }
       }
-    });
-    xhr.addEventListener('abort', function(e) {
-      callback(e);
-    });
-    xhr.open('GET', url, true);
+    };
+    xhr.open('GET', url, !sync);
     xhr.send('');
-  };
-
-  function loadSync(url, callback) {
-    var xhr = new XMLHttpRequest();
-    if (xhr.overrideMimeType) {
-      xhr.overrideMimeType('text/plain');
-    }
-    xhr.open('GET', url, false);
-    xhr.send('');
-    if (xhr.status == 200 || xhr.status == 0) {
-      callback(null, xhr.responseText);
-    } else {
-      callback(new IOError('Not found: ' + url));
-    }
   };
 
   function IOError(message) {
