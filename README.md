@@ -43,7 +43,7 @@ beta 4.
 To use
 [overlaying nodes](https://blog.mozilla.org/l10n/2012/07/16/l20n-features-explained-dom-overlays/)
 with ng-l20n you need to use a very recent `l20n.js` version (the one at commit
-[892b150](https://github.com/l20n/l20n.js/tree/892b1507a446080e80efebd24534744174561671)
+[3a73473](https://github.com/l20n/l20n.js/tree/3a73473c350e26786b7b4c2d72f9ada73d6f7aa0)
 or newer), newer than any currently (as of 2013-10-01) available beta. You can use the
 [version from this repository](https://github.com/EE/ng-l20n/blob/master/vendor/l20n.js)
 if in doubt. Note that adding the `data-l10n-overlay` attribute is no longer needed for overlaying to work.
