@@ -17,14 +17,14 @@
         "grunt": "~0.4.1",
         "grunt-contrib-clean": "~0.5.0",
         "grunt-contrib-copy": "~0.4.1",
-        "grunt-contrib-jshint": "~0.6.0",
-        "grunt-contrib-uglify": "~0.2.4",
-        "grunt-jsonlint": "~1.0.0",
-        "grunt-merge-conflict": "~0.0.2",
-        "grunt-notify": "~0.2.4",
-        "load-grunt-tasks": "~0.1.0"
+        "grunt-contrib-jshint": "~0.7.1",
+        "grunt-contrib-uglify": "~0.2.5",
+        "grunt-jsonlint": "~1.0.2",
+        "grunt-merge-conflict": "0.0.2",
+        "grunt-notify": "~0.2.16",
+        "load-grunt-tasks": "~0.2.0"
     },
     "engines": {
-        "node": ">=0.10.20"
+        "node": ">=0.10.21"
     }
 }
