@@ -20,13 +20,6 @@
             // Dynamically change the site locale based on $rootScope.locale changes.
             documentL10n.once(function () {
                 $rootScope.$apply(function () {
-                    $rootScope.$watch('locale', function (newLocale) {
-                        if (newLocale) { // it might be undefined
-                            localStorage.setItem('locale', newLocale);
-                            documentL10n.requestLocales(newLocale);
-                        }
-                    });
-
                     if (!localStorage.getItem('locale')) {
                         // First visit to the site, set the default locale in localStorage.
                         localStorage.setItem('locale', documentL10n.supportedLocales[0]);
@@ -34,12 +27,15 @@
 
                     $rootScope.locale = localStorage.getItem('locale');
 
-                    // If the locale negotiated by L20n is different from
-                    // the one we stored in localStorage, prefer the one in
-                    // the localStorage
-                    if (documentL10n.supportedLocales[0] !== $rootScope.locale) {
-                        documentL10n.requestLocales($rootScope.locale);
-                    }
+                    $rootScope.$watch('locale', function (newLocale, oldLocale) {
+                        // The second condition is checked only in the first watch handler invocation.
+                        // If the locale negotiated by L20n is different from the one we stored
+                        // in localStorage, prefer the one in localStorage.
+                        if (newLocale !== oldLocale || documentL10n.supportedLocales[0] !== newLocale) {
+                            localStorage.setItem('locale', newLocale);
+                            documentL10n.requestLocales(newLocale);
+                        }
+                    });
                 });
             });
 
