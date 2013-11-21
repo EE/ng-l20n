@@ -24,6 +24,9 @@
         "grunt-notify": "0.2.16",
         "load-grunt-tasks": "0.2.0"
     },
+    "scripts": {
+        "test": "grunt"
+    },
     "engines": {
         "node": ">=0.10.21"
     }
