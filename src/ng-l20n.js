@@ -63,13 +63,16 @@
                 }
 
                 function updateData() {
-                    var event;
+                    var args = arguments;
 
-                    documentL10n.updateData.apply(documentL10n, arguments);
+                    doOnceOnContextReady(documentL10n, function () {
+                        var event;
+                        documentL10n.updateData.apply(documentL10n, args);
 
-                    event = document.createEvent('HTMLEvents');
-                    event.initEvent('l20n:dataupdated', true, true);
-                    document.dispatchEvent(event);
+                        event = document.createEvent('HTMLEvents');
+                        event.initEvent('l20n:dataupdated', true, true);
+                        document.dispatchEvent(event);
+                    });
                 }
 
                 return l20nService;
@@ -91,13 +94,14 @@
 
                 link: function (scope, element, attrs) {
                     function localizeCurrentNode() {
-                        documentL10n.localizeNode(element[0]);
+                        doOnceOnContextReady(documentL10n, function () {
+                            documentL10n.localizeNode(element[0]);
+                        });
                     }
 
-                    attrs.$observe('l20n', function (l20n) {
-                        // Remove possible previous listeners. Do it regardless if data-l20n is empty or not.
-                        document.removeEventListener('l20n:dataupdated', localizeCurrentNode);
+                    document.addEventListener('l20n:dataupdated', localizeCurrentNode);
 
+                    attrs.$observe('l20n', function (l20n) {
                         // Checking if the attribute is truthy prevents from passing an empty translation
                         // key to l20n. If an empty key is used on any node then l20n will translate
                         // neither that node nor any of its following nodes in the entire document. In
@@ -111,14 +115,34 @@
                         // Prepare for the L20n.js translating the element.
                         element.attr('data-l10n-id', l20n);
 
-                        documentL10n.once(function () {
-                            document.addEventListener('l20n:dataupdated', localizeCurrentNode);
-                            localizeCurrentNode();
-                        });
+                        localizeCurrentNode();
                     });
                 },
             };
         }])
 
         .value('documentL10n', document.l10n); // it's provided as value to be easily mocked in tests
+
+    function doOnceOnContextReady(context, fn) {
+        /**
+         * document.l10n.once waits only for the initial context initialization
+         * and doesn't stop when locale is in the process of being swapped.
+         * Therefore, we need our own implementation of the desired "onceReady".
+         */
+
+        if (context.isReady) {
+            console.log('context ready immediately!');
+            fn();
+            return;
+        }
+
+        function fnWrapped() {
+            context.removeEventListener('ready', fnWrapped);
+            console.log('context ready on the ready event!');
+            fn();
+        }
+
+        context.addEventListener('ready', fnWrapped);
+    }
+
 })();
