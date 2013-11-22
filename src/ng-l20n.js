@@ -61,6 +61,9 @@
              */
             return function (scope, element, attrs) {
                 attrs.$observe('l20n', function () {
+                    // Remove possible previous listeners
+                    document.removeEventListener('l20n:dataupdated', localizeCurrentNode);
+
                     // Prepare for the l10nId directive.
                     element.attr('data-l10n-id', attrs.l20n);
 
