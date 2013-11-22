@@ -3,9 +3,8 @@
 module.exports = {
     all: {
         src: [
-            'Gruntfile.js',
-            'tasks/**/*.js',
-            'test/**/*.js',
+            '*.js',
+            '{grunt,src}/**/*.js',
         ],
         options: {
             config: '.jscsrc',

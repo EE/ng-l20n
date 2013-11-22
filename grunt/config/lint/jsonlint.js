@@ -2,6 +2,9 @@
 
 module.exports = {
     all: {
-        src: 'src/**/*.json',
+        src: [
+            '*.json',
+            '{grunt,src}/**/*.json',
+        ],
     },
 };
