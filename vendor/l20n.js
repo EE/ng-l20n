@@ -55,19 +55,17 @@ var require = req.bind(null, null);
 define('l20n/html', function(require) {
   'use strict';
 
+  var DEBUG = false;
+
   var L20n = require('../l20n');
   var io = require('./platform/io');
 
-  var localizeHandler;
-  var ctx = L20n.getContext(document.location.host);
-
-  // http://www.w3.org/International/questions/qa-scripts
-  // XXX: bug 884308
-  // each localization should decide which direction it wants to use
-  var rtlLocales = ['ar', 'fa', 'he', 'ps', 'ur'];
-
   // absolute URLs start with a slash or contain a colon (for schema)
   var reAbsolute = /^\/|:/;
+
+  // http://www.w3.org/International/questions/qa-scripts
+  // XXX: Bug 884308: this should be defined by each localization independently
+  var rtlLocales = ['ar', 'fa', 'he', 'ps', 'ur'];
 
   var whitelist = {
     elements: [
@@ -92,77 +90,40 @@ define('l20n/html', function(require) {
     }
   };
 
+  // Start-up logic (pre-bootstrap)
+  // =========================================================================
+
+  var ctx = L20n.getContext(document.location.host);
+  bindPublicAPI(ctx);
+
+  var localizeHandler;
   var documentLocalized = false;
 
-  bootstrap();
-
-  function bootstrap() {
-    var headNode = document.head;
-    var data =
-      headNode.querySelector('script[type="application/l10n-data+json"]');
-    if (data) {
-      ctx.updateData(JSON.parse(data.textContent));
-    }
-    var scripts = headNode.querySelectorAll('script[type="application/l20n"]');
-    if (scripts.length) {
-      for (var i = 0; i < scripts.length; i++) {
-        if (scripts[i].hasAttribute('src')) {
-          ctx.linkResource(scripts[i].src);
-        } else {
-          ctx.addResource(scripts[i].textContent);
-        }
-      }
-      ctx.requestLocales();
-    } else {
-      var link = headNode.querySelector('link[rel="localization"]');
-      if (link) {
-        // XXX add errback
-        loadManifest(link.href);
-      } else {
-        console.warn('L20n: No resources found. (Put them above l20n.js.)');
-      }
-    }
-
-    if (document.readyState !== 'loading') {
-      collectNodes();
-    } else {
-      document.addEventListener('readystatechange', collectNodes);
-    }
-    bindPublicAPI();
+  // if the DOM is loaded, bootstrap now to fire 'DocumentLocalized'
+  if (document.readyState === 'complete') {
+    window.setTimeout(bootstrap);
+  } else {
+    // or wait for the DOM to be interactive to try to pretranslate it 
+    // using the inline resources
+    waitFor('interactive', bootstrap);
   }
 
-  function collectNodes() {
-    var nodes = getNodes(document);
-    localizeHandler = ctx.localize(nodes.ids, function localizeHandler(l10n) {
-      if (!nodes) {
-        nodes = getNodes(document);
-      }
-      for (var i = 0; i < nodes.nodes.length; i++) {
-        translateNode(nodes.nodes[i],
-                      nodes.ids[i],
-                      l10n.entities[nodes.ids[i]]);
-      }
-
-      // 'locales' in l10n.reason means that localize has been
-      // called because of locale change
-      if ('locales' in l10n.reason && l10n.reason.locales.length) {
-        setDocumentLanguage(l10n.reason.locales[0]);
-      }
-
-      nodes = null;
-      if (!documentLocalized) {
-        documentLocalized = true;
-        fireLocalizedEvent();
+  function waitFor(state, callback) {
+    if (document.readyState === state) {
+      return callback();
+    }
+    document.addEventListener('readystatechange', function() {
+      if (document.readyState === state) {
+        callback();
       }
     });
-
-    // TODO this might fail; silence the error
-    document.removeEventListener('readystatechange', collectNodes);
   }
 
-  function bindPublicAPI() {
-    ctx.addEventListener('error', console.error.bind(console));
-    ctx.addEventListener('warning', console.warn.bind(console));
+  function bindPublicAPI(ctx) {
+    if (DEBUG) {
+      ctx.addEventListener('error', console.error.bind(console));
+      ctx.addEventListener('warning', console.warn.bind(console));
+    }
     ctx.localizeNode = function localizeNode(node) {
       var nodes = getNodes(node);
       var many = localizeHandler.extend(nodes.ids);
@@ -183,6 +144,54 @@ define('l20n/html', function(require) {
       }
     };
     document.l10n = ctx;
+  }
+
+
+  // Bootstrap: set up the context and call requestLocales()
+  // ==========================================================================
+
+  function bootstrap() {
+    var headNode = document.head;
+    var data =
+      headNode.querySelector('script[type="application/l10n-data+json"]');
+    if (data) {
+      ctx.updateData(JSON.parse(data.textContent));
+    }
+
+    var link = headNode.querySelector('link[rel="localization"]');
+    if (link) {
+      loadManifest(link.href);
+      return collectNodes();
+    }
+
+    var scripts = headNode.querySelectorAll('script[type="application/l20n"]');
+    if (scripts.length) {
+      for (var i = 0; i < scripts.length; i++) {
+        if (scripts[i].hasAttribute('src')) {
+          ctx.linkResource(scripts[i].src);
+        } else {
+          ctx.addResource(scripts[i].textContent);
+        }
+      }
+      ctx.requestLocales();
+      return collectNodes();
+    }
+
+    console.error('L20n: No resources found. (Put them above l20n.js.)');
+  }
+
+  function loadManifest(url) {
+    io.load(url, function(err, text) {
+      var manifest = parseManifest(text, url);
+      setupCtxFromManifest(manifest);
+    });
+  }
+
+  function parseManifest(text, url) {
+    var manifest = JSON.parse(text);
+    manifest.resources = manifest.resources.map(
+      relativeToManifest.bind(this, url));
+    return manifest;
   }
 
   function setDocumentLanguage(loc) {
@@ -235,19 +244,40 @@ define('l20n/html', function(require) {
     return dirs.join('/');
   }
 
-  function loadManifest(url) {
-    io.load(url, function manifestLoaded(err, text) {
-      var manifest = JSON.parse(text);
-      manifest.resources = manifest.resources.map(
-                             relativeToManifest.bind(this, url));
-      setupCtxFromManifest(manifest);
-    });
-  }
-
   function fireLocalizedEvent() {
     var event = document.createEvent('Event');
     event.initEvent('DocumentLocalized', false, false);
     document.dispatchEvent(event);
+  }
+
+
+  // DOM Localization
+  // ==========================================================================
+
+  function collectNodes() {
+    var nodes = getNodes(document);
+    localizeHandler = ctx.localize(nodes.ids, function localizeHandler(l10n) {
+      if (!nodes) {
+        nodes = getNodes(document);
+      }
+      for (var i = 0; i < nodes.nodes.length; i++) {
+        translateNode(nodes.nodes[i],
+                      nodes.ids[i],
+                      l10n.entities[nodes.ids[i]]);
+      }
+
+      // 'locales' in l10n.reason means that localize has been
+      // called because of locale change
+      if ('locales' in l10n.reason && l10n.reason.locales.length) {
+        setDocumentLanguage(l10n.reason.locales[0]);
+      }
+
+      nodes = null;
+      if (!documentLocalized) {
+        documentLocalized = true;
+        fireLocalizedEvent();
+      }
+    });
   }
 
   function getNodes(node) {
@@ -316,21 +346,39 @@ define('l20n/html', function(require) {
   function overlayElement(sourceElement, translationElement) {
     var result = document.createDocumentFragment();
 
+    // take one node from translationElement at a time and check it against the 
+    // whitelist or try to match it with a corresponding element in the source
     var childElement;
-    while (childElement = sourceElement.children[0]) {
-      // for each child element, try to find a corresponding element in the 
-      // translation and 1) move all nodes preceding it into `result` and 2) 
-      // move the child element from `sourceElement` into `result` and modify 
-      // its text nodes and attributes (see `insertUntil` for details);
-      // the original child into `result` 
-      // XXX sadly, this assumes a specific order of child elements in the 
-      // transaltion; https://bugzil.la/922576
-      insertUntil(childElement, translationElement, result);
-    }
+    while (childElement = translationElement.childNodes[0]) {
+      translationElement.removeChild(childElement);
 
-    // also handle the nodes in `translationElement` which are directly before 
-    // the end of it
-    insertUntil(null, translationElement, result);
+      if (childElement.nodeType === Node.TEXT_NODE) {
+        result.appendChild(childElement);
+        continue;
+      }
+
+      var sourceChild = getElementOfType(sourceElement, childElement);
+      if (sourceChild) {
+        // there is a corresponding element in the source, let's use it
+        overlayElement(sourceChild, childElement);
+        result.appendChild(sourceChild);
+        continue;
+      }
+
+      if (isElementAllowed(childElement)) {
+        for (var k = 0, attr; attr = childElement.attributes[k]; k++) {
+          if (!isAttrAllowed(attr, childElement)) {
+            childElement.removeAttribute(attr.name);
+          }
+        }
+        result.appendChild(childElement);
+        continue;
+      }
+
+      // otherwise just take this child's textContent
+      var text = new Text(childElement.textContent);
+      result.appendChild(text);
+    }
 
     // clear `sourceElement` and append `result` which by this time contains 
     // `sourceElement`'s original children, overlayed with translation
@@ -350,50 +398,9 @@ define('l20n/html', function(require) {
     }
   }
 
-  function insertUntil(sourceChild, translationElement, result) {
-    var untilElement;
-    if (sourceChild) {
-      // try to find an element in the translation node corresponding to the 
-      // sourceChild in the source
-      untilElement = getElementOfType(translationElement, sourceChild,
-                                      getIndexOfType(sourceChild));
-    }
-    var child;
-    while (child = translationElement.childNodes[0]) {
-      if (child === untilElement) {
-        // we want to reuse the existing sourceChild instead of replacing it 
-        // with the translation element
-        overlayElement(sourceChild, translationElement.removeChild(child));
-        result.insertBefore(sourceChild, null);
-        // we've reached the untilElement, we're done
-        return;
-      } else if (!child.tagName) {
-        // it's a text node
-        result.insertBefore(translationElement.removeChild(child), null);
-      } else {
-        // XXX the whitelist should be amendable; https://bugzil.la/922573
-        if (whitelist.elements.indexOf(child.tagName.toLowerCase()) !== -1) {
-          // if it's one of the safe whitelisted elements
-          result.insertBefore(translationElement.removeChild(child), null);
-          for (var k = 0, attr; attr = child.attributes[k]; k++) {
-            if (!isAttrAllowed(attr, child)) {
-              child.removeAttribute(attr.name);
-            }
-          }
-        } else {
-          // otherwise just take this child's textContent
-          translationElement.removeChild(child);
-          var text = new Text(child.textContent);
-          result.insertBefore(text, null);
-        }
-      }
-    }
-    // no more children in the translation, but untilElement hasn't been found;
-    // remove the sourceChild from its parent;  the translation doesn't need 
-    // it, or is broken
-    if (sourceChild) {
-      sourceChild.parentNode.removeChild(sourceChild);
-    }
+  // XXX the whitelist should be amendable; https://bugzil.la/922573
+  function isElementAllowed(element) {
+    return whitelist.elements.indexOf(element.tagName.toLowerCase()) !== -1;
   }
 
   function isAttrAllowed(attr, element) {
@@ -422,22 +429,12 @@ define('l20n/html', function(require) {
     return false;
   }
 
-  function getIndexOfType(element) {
-    var index = 0;
-    var child;
-    while (child = element.previousElementSibling) {
-      if (child.tagName === element.tagName) {
-        index++;
-      }
-    }
-    return index;
-  }
-
   // ideally, we'd use querySelector(':scope > ELEMENT:nth-of-type(index)'),
   // but 1) :scope is not widely supported yet and 2) it doesn't work with 
   // DocumentFragments.  :scope is needed to query only immediate children
   // https://developer.mozilla.org/en-US/docs/Web/CSS/:scope
-  function getElementOfType(context, element, index) {
+  function getElementOfType(context, element) {
+    var index = getIndexOfType(element);
     var nthOfType = 0;
     for (var i = 0, child; child = context.children[i]; i++) {
       if (child.nodeType === Node.ELEMENT_NODE &&
@@ -449,6 +446,17 @@ define('l20n/html', function(require) {
       }
     }
     return null;
+  }
+
+  function getIndexOfType(element) {
+    var index = 0;
+    var child;
+    while (child = element.previousElementSibling) {
+      if (child.tagName === element.tagName) {
+        index++;
+      }
+    }
+    return index;
   }
 
   // same as exports = L20n;
@@ -489,7 +497,7 @@ define('l20n/context', function(require, exports) {
     this.resources = [];
     this.source = null;
     this.ast = {
-      type: 'LOL',
+      type: 'L20n',
       body: []
     };
 
@@ -518,7 +526,7 @@ define('l20n/context', function(require, exports) {
       function parse(err, text) {
         if (err) {
           return callback(err);
-        } else if (text) {
+        } else if (text !== undefined) {
           self.source = text;
         }
         self.ast = parser.parse(self.source);
@@ -591,7 +599,7 @@ define('l20n/context', function(require, exports) {
     this.resources = [];
     this.entries = null;
     this.ast = {
-      type: 'LOL',
+      type: 'L20n',
       body: []
     };
     this.isReady = false;
@@ -678,8 +686,8 @@ define('l20n/context', function(require, exports) {
     this.linkResource = linkResource;
     this.updateData = updateData;
 
-    this.get = get;
-    this.getEntity = getEntity;
+    this.getSync = getSync;
+    this.getEntitySync = getEntitySync;
     this.localize = localize;
     this.ready = ready;
 
@@ -748,14 +756,14 @@ define('l20n/context', function(require, exports) {
       extend(_data, obj);
     }
 
-    function get(id, data) {
+    function getSync(id, data) {
       if (!_isReady) {
         throw new ContextError('Context not ready');
       }
       return getFromLocale.call(self, 0, id, data).value;
     }
 
-    function getEntity(id, data) {
+    function getEntitySync(id, data) {
       if (!_isReady) {
         throw new ContextError('Context not ready');
       }
@@ -849,7 +857,7 @@ define('l20n/context', function(require, exports) {
         globalsUsed: {}
       };
       for (var i = 0, id; id = ids[i]; i++) {
-        many.entities[id] = getEntity.call(this, id);
+        many.entities[id] = getEntitySync.call(this, id);
         for (var global in many.entities[id].globals) {
           if (many.entities[id].globals.hasOwnProperty(global)) {
             many.globalsUsed[global] = true;
@@ -1168,7 +1176,6 @@ define('l20n/parser', function(require, exports) {
     /* Public */
 
     this.parse = parse;
-    this.parseString = parseString;
     this.addEventListener = addEvent;
     this.removeEventListener = removeEvent;
 
@@ -1178,12 +1185,12 @@ define('l20n/parser', function(require, exports) {
 
     var _source, _index, _length, _emitter;
 
-    var getLOL;
+    var getL20n;
     if (throwOnErrors) {
-      getLOL = getLOLPlain;
+      getL20n = getL20nPlain;
     } else {
       _emitter = new EventEmitter();
-      getLOL = getLOLWithRecover;
+      getL20n = getL20nWithRecover;
     }
 
     function getComment() {
@@ -1296,33 +1303,138 @@ define('l20n/parser', function(require, exports) {
       };
     }
 
-    function getString(opchar) {
-      var len = opchar.length;
-      var start = _index + len;
-
-      var close = _source.indexOf(opchar, start);
-      // we look for a closing of the string here
-      // and then we check if it's preceeded by '\'
-      // 92 == '\'
-      while (close !== -1 &&
-             _source.charCodeAt(close - 1) === 92 &&
-             _source.charCodeAt(close - 2) !== 92) {
-        close = _source.indexOf(opchar, close + 1);
+    function _unescapeString() {
+      var ch = _source.charAt(++_index);
+      var cc;
+      if (ch === 'u') { // special case for unicode
+        var ucode = '';
+        for (var i = 0; i < 4; i++) {
+          ch = _source[++_index];
+          cc = ch.charCodeAt(0);
+          if ((cc > 96 && cc < 103) || // a-f
+              (cc > 64 && cc < 71) || // A-F
+              (cc > 47 && cc < 58)) { // 0-9
+                ucode += ch;
+              } else {
+                throw error('Illegal unicode escape sequence');
+              }
+        }
+        return String.fromCharCode(parseInt(ucode, 16));
       }
-      if (close === -1) {
+      return ch;
+    }
+
+    function getComplexString(opchar, opcharLen) {
+      var body = null;
+      var buf = '';
+      var placeables = 0;
+      var ch;
+
+      _index += opcharLen - 1;
+
+      var start = _index + 1;
+
+      walkChars:
+      while (true) {
+        ch = _source.charAt(++_index);
+        switch (ch) {
+          case '\\':
+            buf += _unescapeString();
+            break;
+          case '{':
+            /* We want to go to default unless {{ */
+            /* jshint -W086 */
+            if (_source.charAt(_index + 1) === '{') {
+              if (body === null) {
+                body = [];
+              }
+              if (placeables > MAX_PLACEABLES - 1) {
+                throw error('Too many placeables, maximum allowed is ' +
+                    MAX_PLACEABLES);
+              }
+              if (buf) {
+                body.push({
+                  type: 'String',
+                  content: buf
+                });
+              }
+              _index += 2;
+              getWS();
+              body.push(getExpression());
+              getWS();
+              if (_source.charAt(_index) !== '}' ||
+                  _source.charAt(_index + 1) !== '}') {
+                    throw error('Expected "}}"');
+                  }
+              _index += 1;
+              placeables++;
+              
+              buf = '';
+              break;
+            }
+          default:
+            if (opcharLen === 1) {
+              if (ch === opchar) {
+                _index++;
+                break walkChars;
+              }
+            } else {
+              if (ch === opchar[0] &&
+                  _source.charAt(_index + 1) === ch &&
+                  _source.charAt(_index + 2) === ch) {
+                _index += 3;
+                break walkChars;
+              }
+            }
+            buf += ch;
+            if (_index + 1 >= _length) {
+              throw error('Unclosed string literal');
+            }
+        }
+      }
+      if (body === null) {
+        return {
+          type: 'String',
+          content: buf
+        };
+      }
+      if (buf.length) {
+        body.push({
+          type: 'String',
+          content: buf
+        });
+      }
+      return {
+        type: 'ComplexString',
+        content: body,
+        source: _source.slice(start, _index - opcharLen)
+      };
+    }
+
+    function getString(opchar, opcharLen) {
+      var opcharPos = _source.indexOf(opchar, _index + opcharLen);
+      var placeablePos, escPos, buf;
+
+      if (opcharPos === -1) {
         throw error('Unclosed string literal');
       }
-      var str = _source.slice(start, close);
+      buf = _source.slice(_index + opcharLen, opcharPos);
 
-      _index = close + len;
+      placeablePos = buf.indexOf('{{');
+      if (placeablePos !== -1) {
+        return getComplexString(opchar, opcharLen);
+      } else {
+        escPos = buf.indexOf('\\');
+        if (escPos !== -1) {
+          return getComplexString(opchar, opcharLen);
+        }
+      }
+
+      _index = opcharPos + opcharLen;
+
       return {
         type: 'String',
-        content: str,
-        // we don't care about escaped cases here;  they are rare enough.
-        // if there is no {{ at all, it's definitely not a complex string.
-        // if there's a \{{, it's not complex either, but we will learn that 
-        // lazily in parseString
-        maybeComplex: str.indexOf('{{') !== -1
+        content: buf
       };
     }
 
@@ -1333,9 +1445,9 @@ define('l20n/parser', function(require, exports) {
       if (ch === '\'' || ch === '"') {
         if (ch === _source.charAt(_index + 1) &&
             ch === _source.charAt(_index + 2)) {
-          return getString(ch + ch + ch);
+          return getString(ch + ch + ch, 3);
         }
-        return getString(ch);
+        return getString(ch, 1);
       }
       if (ch === '{') {
         return getHash();
@@ -1405,7 +1517,7 @@ define('l20n/parser', function(require, exports) {
       }
       ++_index;
       getWS();
-      var uri = getString(_source.charAt(_index));
+      var uri = getString(_source.charAt(_index), 1);
       getWS();
       if (_source.charAt(_index) !== ')') {
         throw error('Expected ")"');
@@ -1456,7 +1568,7 @@ define('l20n/parser', function(require, exports) {
 
       var ch = _source.charAt(_index);
       var value = getValue(true, ch);
-      var attrs = [];
+      var attrs = null;
       if (value === null) {
         if (ch === '>') {
           throw error('Expected ">"');
@@ -1502,7 +1614,7 @@ define('l20n/parser', function(require, exports) {
           return getEntity(id,
                            getItemList(getExpression, ']'));
         }
-        return getEntity(id, []);
+        return getEntity(id, null);
       }
       // 47, 42 == '/*'
       if (_source.charCodeAt(_index) === 47 &&
@@ -1515,103 +1627,7 @@ define('l20n/parser', function(require, exports) {
       throw error('Invalid entry');
     }
 
-    function getComplexString() {
-      /*
-       * This is a very complex function, sorry for that
-       *
-       * It basically parses a string looking for:
-       *   - expression openings: {{
-       *   - escape chars: \
-       * 
-       * And if it finds any it deals with them.
-       * The result is quite fast, except for getExpression which as
-       * of writing does a poor job at nesting many functions in order
-       * to get to the most common type - Identifier.
-       *
-       * We can fast path that, we can rewrite expression engine to minimize
-       * function nesting or we can wait for engines to become faster.
-       *
-       * For now, it's fast enough :)
-       */
-      var nxt;                    // next char in backslash case
-      var body;                   // body of a complex string
-      var bstart = _index;        // buffer start index
-      var complex = false;
-      var placeables = 0;         // number of placeables found, capped by 
-                                  // MAX_PLACEABLES
-
-      // unescape \\ \' \" \{{
-      var pos = _source.indexOf('\\');
-      while (pos !== -1) {
-        nxt = _source.charAt(pos + 1);
-        if (nxt === '"' ||
-            nxt === '\'' ||
-            nxt === '\\') {
-          _source = _source.substr(0, pos) + _source.substr(pos + 1);
-        }
-        pos = _source.indexOf('\\', pos + 1);
-      }
-
-      // parse expressions
-      pos = _source.indexOf('{{');
-      while (pos !== -1) {
-        // except if the expression is prefixed with \
-        // in that case skip it
-        if (_source.charCodeAt(pos - 1) === 92) {
-          _source = _source.substr(0, pos - 1) + _source.substr(pos);
-          pos = _source.indexOf('{{', pos + 2);
-          continue;
-        }
-        if (!complex) {
-          body = [];
-          complex = true;
-        }
-        if (placeables > MAX_PLACEABLES - 1) {
-          throw error('Too many placeables, maximum allowed is ' +
-                      MAX_PLACEABLES);
-        }
-        if (bstart < pos) {
-          body.push({
-            type: 'String',
-            content: _source.slice(bstart, pos)
-          });
-        }
-        _index = pos + 2;
-        getWS();
-        body.push(getExpression());
-        getWS();
-        if (_source.charCodeAt(_index) !== 125 ||
-            _source.charCodeAt(_index + 1) !== 125) {
-          throw error('Expected "}}"');
-        }
-        placeables++;
-        pos = _index + 2;
-        bstart = pos;
-        pos = _source.indexOf('{{', pos);
-      }
-
-      // if complexstring is just one string, return it instead
-      if (!complex) {
-        return {
-          type: 'String',
-          content: _source
-        };
-      }
-
-      // if there's leftover string we pick it
-      if (bstart < _length) {
-        body.push({
-          type: 'String',
-          content: _source.slice(bstart)
-        });
-      }
-      return {
-        type: 'ComplexString',
-        content: body
-      };
-    }
-
-    function getLOLWithRecover() {
+    function getL20nWithRecover() {
       var entries = [];
 
       getWS();
@@ -1632,12 +1648,12 @@ define('l20n/parser', function(require, exports) {
       }
 
       return {
-        type: 'LOL',
+        type: 'L20n',
         body: entries
       };
     }
 
-    function getLOLPlain() {
+    function getL20nPlain() {
       var entries = [];
 
       getWS();
@@ -1649,33 +1665,19 @@ define('l20n/parser', function(require, exports) {
       }
 
       return {
-        type: 'LOL',
+        type: 'L20n',
         body: entries
       };
     }
 
     /* Public API functions */
 
-    function parseString(string) {
-      _source = string;
-      _index = 0;
-      _length = _source.length;
-      try {
-        return getComplexString();
-      } catch (e) {
-        if (_emitter && e instanceof ParserError) {
-          _emitter.emit('error', e);
-        }
-        throw e;
-      }
-    }
-
     function parse(string) {
       _source = string;
       _index = 0;
       _length = _source.length;
 
-      return getLOL();
+      return getL20n();
     }
 
     function addEvent(type, listener) {
@@ -2239,7 +2241,6 @@ define('l20n/compiler', function(require, exports) {
   // TODO change newcap to true?
   /* jshint strict: false, newcap: false */
   var EventEmitter = require('./events').EventEmitter;
-  var Parser = require('./parser').Parser;
 
   function Compiler() {
 
@@ -2255,7 +2256,6 @@ define('l20n/compiler', function(require, exports) {
     var MAX_PLACEABLE_LENGTH = 2500;
 
     var _emitter = new EventEmitter();
-    var _parser = new Parser(true);
     var _globals = null;
     var _references = {
       globals: {}
@@ -2313,26 +2313,32 @@ define('l20n/compiler', function(require, exports) {
       this.id = node.id.name;
       this.env = env;
       this.local = node.local || false;
-      this.index = [];
-      this.attributes = {};
-      this.publicAttributes = [];
+      this.index = null;
+      this.attributes = null;
+      this.publicAttributes = null;
       var i;
-      for (i = 0; i < node.index.length; i++) {
-        this.index.push(IndexExpression(node.index[i], this));
-      }
-      for (i = 0; i < node.attrs.length; i++) {
-        var attr = node.attrs[i];
-        this.attributes[attr.key.name] = new Attribute(attr, this);
-        if (!attr.local) {
-          this.publicAttributes.push(attr.key.name);
+      if (node.index) {
+        this.index = [];
+        for (i = 0; i < node.index.length; i++) {
+          this.index.push(IndexExpression(node.index[i], this));
         }
       }
-      // if the value is a hash, maybeComplex will be undefined;  strictly 
-      // check for false instead of testing if falsy
-      if (node.value && node.value.maybeComplex === false) {
+      if (node.attrs) {
+        this.attributes = {};
+        this.publicAttributes = [];
+        for (i = 0; i < node.attrs.length; i++) {
+          var attr = node.attrs[i];
+          this.attributes[attr.key.name] = new Attribute(attr, this);
+          if (!attr.local) {
+            this.publicAttributes.push(attr.key.name);
+          }
+        }
+      }
+      // Bug 817610 - Optimize a fast path for String entities in the Compiler
+      if (node.value && node.value.type === 'String') {
         this.value = node.value.content;
       } else {
-        this.value = Expression(node.value, this, this.index);
+        this.value = LazyExpression(node.value, this, this.index);
       }
     }
 
@@ -2367,8 +2373,11 @@ define('l20n/compiler', function(require, exports) {
         value: this.getString(ctxdata),
         attributes: {}
       };
-      for (var i = 0, attr; attr = this.publicAttributes[i]; i++) {
-        entity.attributes[attr] = this.attributes[attr].getString(ctxdata);
+      if (this.publicAttributes) {
+        entity.attributes = {};
+        for (var i = 0, attr; attr = this.publicAttributes[i]; i++) {
+          entity.attributes[attr] = this.attributes[attr].getString(ctxdata);
+        }
       }
       entity.globals = _references.globals;
       return entity;
@@ -2378,14 +2387,17 @@ define('l20n/compiler', function(require, exports) {
     function Attribute(node, entity) {
       this.key = node.key.name;
       this.local = node.local || false;
-      this.index = [];
-      for (var i = 0; i < node.index.length; i++) {
-        this.index.push(IndexExpression(node.index[i], this));
+      this.index = null;
+      if (node.index) {
+        this.index = [];
+        for (var i = 0; i < node.index.length; i++) {
+          this.index.push(IndexExpression(node.index[i], this));
+        }
       }
-      if (node.value && node.value.maybeComplex === false) {
+      if (node.value && node.value.type === 'String') {
         this.value = node.value.content;
       } else {
-        this.value = Expression(node.value, entity, this.index);
+        this.value = LazyExpression(node.value, entity, this.index);
       }
       this.entity = entity;
     }
@@ -2410,7 +2422,7 @@ define('l20n/compiler', function(require, exports) {
       this.id = node.id.name;
       this.env = env;
       this.local = node.local || false;
-      this.expression = Expression(node.expression, this);
+      this.expression = LazyExpression(node.expression, this);
       this.args = node.args;
     }
     Macro.prototype._call = function M_call(args, ctxdata) {
@@ -2478,6 +2490,20 @@ define('l20n/compiler', function(require, exports) {
         index = index.slice();
       }
       return EXPRESSION_TYPES[node.type](node, entry, index);
+    }
+
+    function LazyExpression(node, entry, index) {
+      // An entity can have no value.  It will be resolved to `null`.
+      if (!node) {
+        return null;
+      }
+      var expr;
+      return function(locals, ctxdata, prop) {
+        if (!expr) {
+          expr = Expression(node, entry, index);
+        }
+        return expr(locals, ctxdata, prop);
+      };
     }
 
     function _resolve(expr, locals, ctxdata) {
@@ -2573,42 +2599,15 @@ define('l20n/compiler', function(require, exports) {
         return [locals, node.value];
       };
     }
-    function StringLiteral(node, entry) {
-      var complex;
+    function StringLiteral(node) {
       return function stringLiteral(locals, ctxdata, key) {
         // if a key was passed, throw;  checking arguments is more reliable 
         // than testing the value of key because if the key comes from context 
         // data it can be any type, also undefined
-        if (arguments.length > 2) {
+        if (key !== undefined) {
           throw new RuntimeError('Cannot get property of a string: ' + key);
         }
-        if (!node.maybeComplex) {
-          return [locals, node.content];
-        }
-        // parse the string if there's no cached complex expression
-        var parsed;
-        if (!complex) {
-          try {
-            parsed = _parser.parseString(node.content);
-          } catch (e) {
-            throw new ValueError('Malformed string. ' + e.message, entry,
-                                 node.content);
-          }
-          if (parsed.type === 'String') {
-            return [locals, parsed.content];
-          }
-          complex = Expression(parsed, entry);
-        }
-        try {
-          return [locals, _resolve(complex, locals, ctxdata)];
-        } catch (e) {
-          requireCompilerError(e);
-          // only throw, don't emit yet.  If the `ValueError` makes it to 
-          // `getString()` it will be emitted there.  It might, however, be 
-          // cought by `IndexExpression` and changed into a `IndexError`.  See 
-          // `IndexExpression` for more explanation.
-          throw new ValueError(e.message, entry, node.content);
-        }
+        return [locals, node.content];
       };
     }
 
@@ -2626,7 +2625,10 @@ define('l20n/compiler', function(require, exports) {
       // the closure immediately.
       return (function() {
         var dirty = false;
-        return function complexString(locals, ctxdata) {
+        return function complexString(locals, ctxdata, key) {
+          if (key !== undefined) {
+            throw new RuntimeError('Cannot get property of a string: ' + key);
+          }
           if (dirty) {
             throw new RuntimeError('Cyclic reference detected');
           }
@@ -2646,6 +2648,13 @@ define('l20n/compiler', function(require, exports) {
               }
               parts.push(part);
             }
+          } catch (e) {
+            requireCompilerError(e);
+            // only throw, don't emit yet.  If the `ValueError` makes it to 
+            // `getString()` it will be emitted there.  It might, however, be 
+            // cought by `IndexExpression` and changed into a `IndexError`.  
+            // See `IndexExpression` for more explanation.
+            throw new ValueError(e.message, entry, node.source);
           } finally {
             dirty = false;
           }
@@ -2730,7 +2739,7 @@ define('l20n/compiler', function(require, exports) {
       var content = {};
       // if absent, `defaultKey` and `defaultIndex` are undefined
       var defaultKey;
-      var defaultIndex = index.length ? index.shift() : undefined;
+      var defaultIndex = index ? index.shift() : undefined;
       for (var i = 0; i < node.content.length; i++) {
         var elem = node.content[i];
         // use `elem.value` to skip `HashItem` and create the value right away
@@ -2964,6 +2973,10 @@ define('l20n/compiler', function(require, exports) {
         node.property.name;
       return function propertyExpression(locals, ctxdata) {
         var prop = _resolve(property, locals, ctxdata);
+        if (typeof prop !== 'string') {
+          throw new RuntimeError('Property name must evaluate to a string: ' +
+                                 prop);
+        }
         var parent = expression(locals, ctxdata);
         locals = parent[0];
         parent = parent[1];
