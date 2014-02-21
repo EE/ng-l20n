@@ -12,6 +12,18 @@ use `data-l10n-id` instead) so tutorials from http://l20n.org still apply with t
 An example sandbox is included. You can freely use Angular expressions inside the attribute, they will be parsed for
 you before passing to l20n.
 
+Configuration
+-------------
+
+Locale is stored in `localStorage`. The `localStorage` key, the `$rootScope` property that stores the locale on
+runtime as well as the name of the locale switching function attached to the `$rootScope` are customizable:
+
+    myApp.config(["l20nProvider", function(l20nProvider) {
+      l20nProvider.localeStorageKey = 'myAppLocaleKey';            // default: 'locale'
+      l20nProvider.localeProperty = 'myAppLocale';                 // default: 'locale'
+      l20nProvider.changeLocaleFunctionName = 'myAppChangeLocale'; // default: 'changeLocale'
+    }]);
+
 Minification and linting
 ------------------------
 
