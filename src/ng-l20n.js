@@ -10,47 +10,56 @@
 
     angular.module('ngL20n', [])
 
-        .factory('l20n', ['$rootScope', 'documentL10n', function ($rootScope, documentL10n) {
-            $rootScope.changeLocale = function changeLocale(newLocale) {
-                // The main function for changing a locale. Everything gets triggered by changes
-                // made in this function.
-                $rootScope.locale = newLocale;
-            };
+        .provider('l20n', function l20nProvider() {
 
-            // Dynamically change the site locale based on $rootScope.locale changes.
-            documentL10n.once(function () {
-                $rootScope.$apply(function () {
-                    if (!localStorage.getItem('locale')) {
-                        // First visit to the site, set the default locale in localStorage.
-                        localStorage.setItem('locale', documentL10n.supportedLocales[0]);
-                    }
+            var l20nProvider = this;
 
-                    $rootScope.locale = localStorage.getItem('locale');
+            l20nProvider.localeStorageKey = 'locale';
+            l20nProvider.localeProperty = 'locale';
+            l20nProvider.setChangeLocaleFunctionName = 'changeLocale';
 
-                    $rootScope.$watch('locale', function (newLocale, oldLocale) {
-                        // The second condition is checked only in the first watch handler invocation.
-                        // If the locale negotiated by L20n is different from the one we stored
-                        // in localStorage, prefer the one in localStorage.
-                        if (newLocale !== oldLocale || documentL10n.supportedLocales[0] !== newLocale) {
-                            localStorage.setItem('locale', newLocale);
-                            documentL10n.requestLocales(newLocale);
+            l20nProvider.$get = ['$rootScope', 'documentL10n', function ($rootScope, documentL10n) {
+                $rootScope[l20nProvider.setChangeLocaleFunctionName] = function changeLocale(newLocale) {
+                    // The main function for changing a locale. Everything gets triggered by changes
+                    // made in this function.
+                    $rootScope[l20nProvider.localeProperty] = newLocale;
+                };
+
+                // Dynamically change the site locale based on locale changes on $rootScope.
+                documentL10n.once(function () {
+                    $rootScope.$apply(function () {
+                        if (!localStorage.getItem(l20nProvider.localeStorageKey)) {
+                            // First visit to the site, set the default locale in localStorage.
+                            localStorage.setItem(l20nProvider.localeStorageKey, documentL10n.supportedLocales[0]);
                         }
+
+                        $rootScope[l20nProvider.localeProperty] = localStorage.getItem(l20nProvider.localeStorageKey);
+
+                        $rootScope.$watch(l20nProvider.localeProperty, function (newLocale, oldLocale) {
+                            // The second condition is checked only in the first watch handler invocation.
+                            // If the locale negotiated by L20n is different from the one we stored
+                            // in localStorage, prefer the one in localStorage.
+                            if (newLocale !== oldLocale || documentL10n.supportedLocales[0] !== newLocale) {
+                                localStorage.setItem(l20nProvider.localeStorageKey, newLocale);
+                                documentL10n.requestLocales(newLocale);
+                            }
+                        });
                     });
                 });
-            });
 
-            return {
-                updateData: function updateData() {
-                    var event;
+                return {
+                    updateData: function updateData() {
+                        var event;
 
-                    documentL10n.updateData.apply(documentL10n, arguments);
+                        documentL10n.updateData.apply(documentL10n, arguments);
 
-                    event = document.createEvent('HTMLEvents');
-                    event.initEvent('l20n:dataupdated', true, true);
-                    document.dispatchEvent(event);
-                },
-            };
-        }])
+                        event = document.createEvent('HTMLEvents');
+                        event.initEvent('l20n:dataupdated', true, true);
+                        document.dispatchEvent(event);
+                    },
+                };
+            }];
+        })
 
         .directive('l20n', ['documentL10n', function (documentL10n) {
             /**
