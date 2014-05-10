@@ -15,14 +15,17 @@ you before passing to l20n.
 Configuration
 -------------
 
-Locale is stored in `localStorage`. The `localStorage` key, the `$rootScope` property that stores the locale on
-runtime as well as the name of the locale switching function attached to the `$rootScope` are customizable:
+Locale is stored in `localStorage`. The `localStorage` key as well al the `$rootScope` property that stores
+the locale are customizable:
 
-    myApp.config(["l20nProvider", function(l20nProvider) {
-      l20nProvider.localeStorageKey = 'myAppLocaleKey';            // default: 'locale'
-      l20nProvider.localeProperty = 'myAppLocale';                 // default: 'locale'
-      l20nProvider.changeLocaleFunctionName = 'myAppChangeLocale'; // default: 'changeLocale'
-    }]);
+```js
+myApp.config(["l20nProvider", function(l20nProvider) {
+  l20nProvider.localeStorageKey = 'myAppLocaleKey';    // default: 'locale'
+  l20nProvider.localeProperty = 'myAppLocale';         // default: none
+}]);
+```
+
+If the `localeProperty` is not specified, nothing will be saved to `$rootScope`.
 
 Minification and linting
 ------------------------
