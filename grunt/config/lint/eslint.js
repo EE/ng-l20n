@@ -11,6 +11,11 @@
 
 module.exports = {
     all: {
-        src: 'src/**/*.json',
+        src: [
+            'Gruntfile.js',
+            'grunt',
+            'src',
+
+        ],
     },
 };

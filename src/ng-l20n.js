@@ -90,5 +90,4 @@
         }])
 
         .value('documentL10n', document.l10n); // it's provided as value to be easily mocked in tests
-
 })();

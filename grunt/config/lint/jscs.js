@@ -10,14 +10,14 @@
 'use strict';
 
 module.exports = {
-    options: {
-        jshintrc: true,
-    },
     all: {
         src: [
             'Gruntfile.js',
-            'grunt/**/*.js',
-            'src/**/*.js',
+            'tasks/**/*.js',
+            'test/**/*.js',
         ],
+        options: {
+            config: '.jscsrc',
+        },
     },
 };

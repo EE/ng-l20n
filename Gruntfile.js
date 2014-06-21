@@ -13,7 +13,8 @@ module.exports = function (grunt) {
     grunt.initConfig({
         clean: require('./grunt/config/clean'),
         copy: require('./grunt/config/copy'),
-        jshint: require('./grunt/config/lint/jshint'),
+        eslint: require('./grunt/config/lint/eslint'),
+        jscs: require('./grunt/config/lint/jscs'),
         jsonlint: require('./grunt/config/lint/jsonlint'),
         'merge-conflict': require('./grunt/config/lint/merge-conflict'),
         uglify: require('./grunt/config/uglify'),
@@ -28,7 +29,8 @@ module.exports = function (grunt) {
 
 
     grunt.registerTask('lint', [
-        'jshint',
+        'eslint',
+        'jscs',
         'jsonlint',
     ]);
 
