@@ -18,6 +18,9 @@
             l20nProvider.localeStorageKey = 'ngL20nLocale';
 
             l20nProvider.$get = ['$rootScope', 'documentL10n', function ($rootScope, documentL10n) {
+                l20nProvider.updateData = updateData;
+                l20nProvider.changeLocale = changeLocale;
+
                 // Initialize to locale from localStorage if one exist. Otherwise, fall back
                 // to the locale negotiated by L20n.
                 documentL10n.once(function () {
@@ -53,11 +56,7 @@
                     document.dispatchEvent(event);
                 }
 
-
-                return {
-                    updateData: updateData,
-                    changeLocale: changeLocale,
-                };
+                return l20nProvider;
             }];
         })
 
