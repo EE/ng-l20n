@@ -1,6 +1,6 @@
 {
     "name": "ng-l20n",
-    "version": "0.1.1-pre",
+    "version": "0.1.1",
     "description": "An Angular module for l20n.js: localization 2.0",
     "homepage": "https://github.com/EE/ng-l20n",
     "author": {
@@ -13,6 +13,9 @@
         "url": "https://github.com/EE/ng-l20n.git"
     },
     "bugs": "https://github.com/EE/ng-l20n/issues",
+    "files": [
+        "dist"
+    ],
     "devDependencies": {
         "grunt": "0.4.5",
         "grunt-cli": "0.1.13",
