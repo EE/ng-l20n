@@ -46,7 +46,7 @@
                             // can be asynchronous. We can't just use `documentL10n.ready`, though
                             // as context once marked ready is never unmarked as such. :-(
                             // Thus, we have to register the handler before the `requestLocale`
-                            // invocation; otherwise we have no way of knowing if the event alredy
+                            // invocation; otherwise we have no way of knowing if the event already
                             // fired.
                             documentL10n.addEventListener('ready', setRootScopeLocale);
                         }
