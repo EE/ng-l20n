@@ -17,7 +17,7 @@
 
             l20nProvider.localeStorageKey = 'ngL20nLocale';
 
-            l20nProvider.$get = function ($rootScope, documentL10n) {
+            l20nProvider.$get = function ($rootScope, $timeout, documentL10n) {
                 var l20nService = new function L20n() {
                     this.updateData = updateData;
                     this.changeLocale = changeLocale;
@@ -38,13 +38,27 @@
                     locale = newLocale;
 
                     if (locale !== previousLocale) {
+                        localStorage.setItem(l20nProvider.localeStorageKey, locale);
+
                         // Set the $rootScope property only if provided.
                         if (l20nProvider.localeProperty) {
-                            $rootScope[l20nProvider.localeProperty] = locale;
+                            // The locale needs to be set on the `ready` event since `requestLocales`
+                            // can be asynchronous. We can't just use `documentL10n.ready`, though
+                            // as context once marked ready is never unmarked as such. :-(
+                            // Thus, we have to register the handler before the `requestLocale`
+                            // invocation; otherwise we have no way of knowing if the event alredy
+                            // fired.
+                            documentL10n.addEventListener('ready', setRootScopeLocale);
                         }
 
-                        localStorage.setItem(l20nProvider.localeStorageKey, newLocale);
-                        documentL10n.requestLocales(newLocale);
+                        documentL10n.requestLocales(locale);
+                    }
+
+                    function setRootScopeLocale() {
+                        $timeout(function () {
+                            documentL10n.removeEventListener('ready', setRootScopeLocale);
+                            $rootScope[l20nProvider.localeProperty] = locale;
+                        });
                     }
                 }
 
@@ -61,7 +75,7 @@
                 return l20nService;
             };
 
-            l20nProvider.$get.$inject = ['$rootScope', 'documentL10n'];
+            l20nProvider.$get.$inject = ['$rootScope', '$timeout', 'documentL10n'];
         })
 
 
