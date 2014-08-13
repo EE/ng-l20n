@@ -17,7 +17,7 @@
 
             l20nProvider.localeStorageKey = 'ngL20nLocale';
 
-            l20nProvider.$get = ['$rootScope', 'documentL10n', function ($rootScope, documentL10n) {
+            l20nProvider.$get = function ($rootScope, documentL10n) {
                 var l20nService = new function L20n() {
                     this.updateData = updateData;
                     this.changeLocale = changeLocale;
@@ -59,7 +59,9 @@
                 }
 
                 return l20nService;
-            }];
+            };
+
+            l20nProvider.$get.$inject = ['$rootScope', 'documentL10n'];
         })
 
 
