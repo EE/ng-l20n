@@ -88,6 +88,15 @@
              */
             return function (scope, element, attrs) {
                 attrs.$observe('l20n', function () {
+                    // Checking if the attribute is truthy prevents from passing an empty translation
+                    // key to l20n. If an empty key is used on any node then l20n will translate
+                    // neither that node nor any of its following nodes in the entire document. In
+                    // the worst case scenario this may lead to a permanent l20n failure if the empty
+                    // key occurs at the very beginning of the document.
+                    if (!attrs.l20n) {
+                        return;
+                    }
+
                     // Remove possible previous listeners
                     document.removeEventListener('l20n:dataupdated', localizeCurrentNode);
 
