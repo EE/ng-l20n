@@ -99,6 +99,7 @@
                         // the worst case scenario this may lead to a permanent l20n failure if the empty
                         // key occurs at the very beginning of the document.
                         if (!attrs.l20n) {
+                            element.removeAttr('data-l10n-id');
                             return;
                         }
 
