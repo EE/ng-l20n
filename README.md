@@ -52,7 +52,7 @@ from the `dist/` folder.
 Notes
 -----
 
-`ng-l20n` requires `l20n.js` in version 1.0 Release Candidate or newer.
+`ng-l20n` requires `l20n.js` in version 1.0 or newer.
 
 License
 -------
