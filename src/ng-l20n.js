@@ -81,16 +81,21 @@
 
         .directive('l20n', ['documentL10n', function (documentL10n) {
             /**
-             * Since the attribute data-l10n-id could hold not the localization id itself but a string
-             * to be evaluated and l20n doesn't place nice with it, we need to pre-evaluate the attribute
+             * Since the attribute data-l10n-id might hold not the localization id itself but a string
+             * to be evaluated and L20n.js doesn't place nice with it, we need to pre-evaluate the attribute
              * and pass it to the data-l10n-id attribute later. The data-l10n-id attribute is, in turn,
-             * processed by the l10nId directive.
+             * processed by L20n.js.
              */
             return {
                 restrict: 'A',
+
                 link: function (scope, element, attrs) {
-                    attrs.$observe('l20n', function () {
-                        // Remove possible previous listeners
+                    function localizeCurrentNode() {
+                        documentL10n.localizeNode(element[0]);
+                    }
+
+                    attrs.$observe('l20n', function (l20n) {
+                        // Remove possible previous listeners. Do it regardless if data-l20n is empty or not.
                         document.removeEventListener('l20n:dataupdated', localizeCurrentNode);
 
                         // Checking if the attribute is truthy prevents from passing an empty translation
@@ -98,22 +103,18 @@
                         // neither that node nor any of its following nodes in the entire document. In
                         // the worst case scenario this may lead to a permanent l20n failure if the empty
                         // key occurs at the very beginning of the document.
-                        if (!attrs.l20n) {
+                        if (!l20n) {
                             element.removeAttr('data-l10n-id');
                             return;
                         }
 
-                        // Prepare for the l10nId directive.
-                        element.attr('data-l10n-id', attrs.l20n);
+                        // Prepare for the L20n.js translating the element.
+                        element.attr('data-l10n-id', l20n);
 
                         documentL10n.once(function () {
                             document.addEventListener('l20n:dataupdated', localizeCurrentNode);
                             localizeCurrentNode();
                         });
-
-                        function localizeCurrentNode() {
-                            documentL10n.localizeNode(element[0]);
-                        }
                     });
                 },
             };
