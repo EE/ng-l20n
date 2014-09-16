@@ -90,6 +90,9 @@
                 restrict: 'A',
                 link: function (scope, element, attrs) {
                     attrs.$observe('l20n', function () {
+                        // Remove possible previous listeners
+                        document.removeEventListener('l20n:dataupdated', localizeCurrentNode);
+
                         // Checking if the attribute is truthy prevents from passing an empty translation
                         // key to l20n. If an empty key is used on any node then l20n will translate
                         // neither that node nor any of its following nodes in the entire document. In
@@ -98,9 +101,6 @@
                         if (!attrs.l20n) {
                             return;
                         }
-
-                        // Remove possible previous listeners
-                        document.removeEventListener('l20n:dataupdated', localizeCurrentNode);
 
                         // Prepare for the l10nId directive.
                         element.attr('data-l10n-id', attrs.l20n);
