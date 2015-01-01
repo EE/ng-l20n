@@ -1,4 +1,9 @@
 language: node_js
 sudo: false
 node_js:
-  - '0.11'
+  - '0.10'
+before_install:
+  # Log HTTP requests
+  - npm config set loglevel http
+install:
+  - time npm install
