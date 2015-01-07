@@ -8,6 +8,7 @@
     "email": "michal.golebiowski@laboratorium.ee",
     "url": "http://laboratorium.ee"
   },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/EE/ng-l20n.git"
