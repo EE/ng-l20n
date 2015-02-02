@@ -82,7 +82,7 @@
         .directive('l20n', ['documentL10n', function (documentL10n) {
             /**
              * Since the attribute data-l10n-id might hold not the localization id itself but a string
-             * to be evaluated and L20n.js doesn't place nice with it, we need to pre-evaluate the attribute
+             * to be evaluated and L20n.js doesn't play nice with it, we need to pre-evaluate the attribute
              * and pass it to the data-l10n-id attribute later. The data-l10n-id attribute is, in turn,
              * processed by L20n.js.
              */
