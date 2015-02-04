@@ -91,6 +91,11 @@
 
                 link: function (scope, element, attrs) {
                     function localizeCurrentNode() {
+                        // l20n cant handle localization of comment nodes, throwing an error in the process.
+                        // Do not pass comment nodes to l20n for localization.
+                        if(element[0].nodeType === Node.COMMENT_NODE){
+                            return;
+                        }
                         documentL10n.localizeNode(element[0]);
                     }
 
