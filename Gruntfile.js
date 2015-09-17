@@ -5,7 +5,6 @@ module.exports = function (grunt) {
         clean: require('./grunt/config/clean'),
         copy: require('./grunt/config/copy'),
         eslint: require('./grunt/config/lint/eslint'),
-        jscs: require('./grunt/config/lint/jscs'),
         jsonlint: require('./grunt/config/lint/jsonlint'),
         'merge-conflict': require('./grunt/config/lint/merge-conflict'),
         uglify: require('./grunt/config/uglify'),
@@ -21,7 +20,6 @@ module.exports = function (grunt) {
 
     grunt.registerTask('lint', [
         'eslint',
-        'jscs',
         'jsonlint',
     ]);
 
