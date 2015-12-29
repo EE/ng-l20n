@@ -91,7 +91,7 @@
             return {
                 restrict: 'A',
 
-                link: function (_scope, element, attrs) {
+                link: function (__scope, element, attrs) {
                     function localizeCurrentNode() {
                         // l20n can't handle localization of comment nodes, throwing an error in
                         // the process. Do not pass comment nodes to l20n for localization.
