@@ -10,7 +10,7 @@
             margin: 20px 0;
         }
         div[data-l20n="overlayed"] > strong::after {
-            content: attr(data-result);
+            content: " " attr(data-result);
         }
     </style>
 </head>
@@ -20,17 +20,17 @@
 <input type="number" ng-model="data.objectsNum">
 
 <div>
-    <a href="#" ng-show="locale !== 'pl'" ng-click="changeLocale('pl')">Wersja polska</a>
-    <a href="#" ng-show="locale !== 'en-US'" ng-click="changeLocale('en-US')">English version</a>
+    <button ng-show="sandboxLocale !== 'pl'" ng-click="changeLocale('pl')">Wersja polska</button>
+    <button ng-show="sandboxLocale !== 'en-US'" ng-click="changeLocale('en-US')">English version</button>
 </div>
 
 <div data-l20n="overlayed">
-    <strong data-result=" (Attribute: {{ data.testNumber }}) "></strong>
+    <strong data-result="({{ data.testNumber }})"></strong>
     <input type="number" ng-model="data.testNumber">
 </div>
 
-<script src="../vendor/l20n.js"></script>
-<script src="../vendor/angular.js"></script>
+<script src="../node_modules/ee-l20n/dist/html/l20n.js"></script>
+<script src="../node_modules/angular/angular.js"></script>
 
 <script src="app.js"></script>
 <script src="../src/ng-l20n.js"></script>

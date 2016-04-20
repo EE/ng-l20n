@@ -19,7 +19,7 @@ Locale is stored in `localStorage`. The `localStorage` key as well al the `$root
 the locale are customizable:
 
 ```js
-myApp.config(["l20nProvider", function(l20nProvider) {
+myApp.config(['l20nProvider', function (l20nProvider) {
   l20nProvider.localeStorageKey = 'myAppLocaleKey';    // default: 'locale'
   l20nProvider.localeProperty = 'myAppLocale';         // default: none
 }]);

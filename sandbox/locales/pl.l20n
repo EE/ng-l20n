@@ -14,4 +14,4 @@
 
 <setObjectsNumber "Ustaw liczbę obiektów">
 
-<overlayed "Ten akapit testuje <strong>nakładanie tłumaczenia na węzły</strong>. Liczba testowa: <input>.">
+<overlayed "Ten akapit testuje <strong>nakładanie tłumaczenia na węzły; w nawiasie powinna się pojawić wpisana liczba</strong>. Liczba testowa: <input>.">

@@ -18,6 +18,8 @@
     "dist"
   ],
   "devDependencies": {
+    "angular": "1.5.5",
+    "ee-l20n": "1.2.0",
     "eslint-config-mgol": "0.0.14",
     "grunt": "1.0.1",
     "grunt-cli": "1.2.0",

@@ -10,12 +10,20 @@
     'use strict';
 
     angular.module('testApp', ['ngL20n'])
+
+        .config(['l20nProvider', function (l20nProvider) {
+            l20nProvider.localeStorageKey = 'sandbox-locale';
+            l20nProvider.localeProperty = 'sandboxLocale';
+        }])
+        
         .run(['$rootScope', 'documentL10n', 'l20n', function ($rootScope, documentL10n, l20n) {
             $rootScope.l20nId = 'objectsWithCount';
             $rootScope.data = {
                 objectsNum: 102,
                 testNumber: 0,
             };
+
+            $rootScope.changeLocale = l20n.changeLocale;
 
             function setObjectsNum(number) {
                 l20n.updateData({
