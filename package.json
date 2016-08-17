@@ -18,19 +18,19 @@
     "dist"
   ],
   "devDependencies": {
-    "angular": "1.5.5",
+    "angular": "1.5.8",
     "ee-l20n": "1.2.0",
-    "eslint-config-mgol": "0.0.15",
+    "eslint-config-mgol": "0.0.27",
     "grunt": "1.0.1",
     "grunt-cli": "1.2.0",
     "grunt-contrib-clean": "1.0.0",
     "grunt-contrib-copy": "1.0.0",
-    "grunt-contrib-uglify": "1.0.1",
-    "grunt-eslint": "18.1.0",
-    "grunt-jsonlint": "1.0.7",
+    "grunt-contrib-uglify": "2.0.0",
+    "grunt-eslint": "19.0.0",
+    "grunt-jsonlint": "1.1.0",
     "grunt-merge-conflict": "0.0.2",
     "grunt-notify": "0.4.5",
-    "load-grunt-tasks": "3.5.0"
+    "load-grunt-tasks": "3.5.2"
   },
   "scripts": {
     "test": "grunt"
