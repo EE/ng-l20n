@@ -1,6 +1,6 @@
 {
   "name": "ng-l20n",
-  "version": "0.2.5-pre",
+  "version": "0.3.0",
   "description": "An Angular module for l20n.js: localization 2.0",
   "homepage": "https://github.com/EE/ng-l20n",
   "author": {
