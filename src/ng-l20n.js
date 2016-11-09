@@ -18,26 +18,16 @@
             l20nProvider.localeStorageKey = 'ngL20nLocale';
 
             l20nProvider.$get = function ($rootScope, $timeout, documentL10n) {
-                var l20nService = new function L20n() {
-                    this.updateData = updateData;
-                    this.changeLocale = changeLocale;
-                };
-
-                // Initialize to locale from localStorage if one exist. Otherwise, fall back
-                // to the locale negotiated by L20n.
-                documentL10n.once(function () {
-                    $rootScope.$apply(function () {
-                        l20nService.changeLocale(
-                            localStorage.getItem(l20nProvider.localeStorageKey) ||
-                            documentL10n.supportedLocales[0]
-                        );
-                    });
-                });
-
-
-                function changeLocale(newLocale) {
+                var changeLocale = function (newLocale) {
                     previousLocale = locale;
                     locale = newLocale;
+
+                    var setRootScopeLocale = function () {
+                        $timeout(function () {
+                            documentL10n.removeEventListener('ready', setRootScopeLocale);
+                            $rootScope[l20nProvider.localeProperty] = locale;
+                        });
+                    };
 
                     if (locale !== previousLocale) {
                         localStorage.setItem(l20nProvider.localeStorageKey, locale);
@@ -55,24 +45,33 @@
 
                         documentL10n.requestLocales(locale);
                     }
+                };
 
-                    function setRootScopeLocale() {
-                        $timeout(function () {
-                            documentL10n.removeEventListener('ready', setRootScopeLocale);
-                            $rootScope[l20nProvider.localeProperty] = locale;
-                        });
-                    }
-                }
-
-                function updateData() {
-                    var event;
+                var updateData = function () {
+                    var ev;
 
                     documentL10n.updateData.apply(documentL10n, arguments);
 
-                    event = document.createEvent('HTMLEvents');
-                    event.initEvent('l20n:dataupdated', true, true);
-                    document.dispatchEvent(event);
-                }
+                    ev = document.createEvent('HTMLEvents');
+                    ev.initEvent('l20n:dataupdated', true, true);
+                    document.dispatchEvent(ev);
+                };
+
+                var l20nService = new (function L20n() {
+                    this.updateData = updateData;
+                    this.changeLocale = changeLocale;
+                })();
+
+                // Initialize to locale from localStorage if one exist. Otherwise, fall back
+                // to the locale negotiated by L20n.
+                documentL10n.once(function () {
+                    $rootScope.$apply(function () {
+                        l20nService.changeLocale(
+                            localStorage.getItem(l20nProvider.localeStorageKey) ||
+                            documentL10n.supportedLocales[0]
+                        );
+                    });
+                });
 
                 return l20nService;
             };
@@ -92,14 +91,14 @@
                 restrict: 'A',
 
                 link: function (__scope, element, attrs) {
-                    function localizeCurrentNode() {
+                    var localizeCurrentNode = function () {
                         // l20n can't handle localization of comment nodes, throwing an error in
                         // the process. Do not pass comment nodes to l20n for localization.
                         if (element[0].nodeType === Node.COMMENT_NODE) {
                             return;
                         }
                         documentL10n.localizeNode(element[0]);
-                    }
+                    };
 
                     attrs.$observe('l20n', function (l20n) {
                         // Remove possible previous listeners. Do it regardless if data-l20n is

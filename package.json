@@ -21,7 +21,7 @@
   "devDependencies": {
     "angular": "1.5.8",
     "ee-l20n": "1.2.0",
-    "eslint-config-mgol": "0.0.27",
+    "eslint-config-mgol": "0.0.34",
     "grunt": "1.0.1",
     "grunt-cli": "1.2.0",
     "grunt-contrib-clean": "1.0.0",
