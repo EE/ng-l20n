@@ -1,5 +1,5 @@
 /**
- * Author Michał Gołębiowski <michal.golebiowski@laboratorium.ee>
+ * Author Michał Gołębiowski-Owczarek <michal.golebiowski@laboratorium.ee>
  * © 2012, 2013 Laboratorium EE
  *
  * License: MIT

@@ -1,5 +1,5 @@
 /**
- * Author Michał Gołębiowski <michal.golebiowski@laboratorium.ee>
+ * Author Michał Gołębiowski-Owczarek <michal.golebiowski@laboratorium.ee>
  * Author Mikołaj Dądela <mikolaj.dadela@laboratorium.ee>
  * Author Patryk Hes <patryk.hes@laboratorium.ee>
  * Part of CBN Polona - National Library of Poland
