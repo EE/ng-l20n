@@ -15,7 +15,7 @@
             l20nProvider.localeStorageKey = 'sandbox-locale';
             l20nProvider.localeProperty = 'sandboxLocale';
         }])
-        
+
         .run(['$rootScope', 'documentL10n', 'l20n', function ($rootScope, documentL10n, l20n) {
             $rootScope.l20nId = 'objectsWithCount';
             $rootScope.data = {
@@ -25,11 +25,11 @@
 
             $rootScope.changeLocale = l20n.changeLocale;
 
-            function setObjectsNum(number) {
+            var setObjectsNum = function (number) {
                 l20n.updateData({
                     objectsNum: number,
                 });
-            }
+            };
 
             $rootScope.$watch('data.objectsNum', function (newValue) {
                 setObjectsNum(parseInt(newValue, 10) || 0);
