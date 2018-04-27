@@ -1,10 +1,6 @@
 language: node_js
-dist: trusty
 sudo: false
 node_js:
-  - '8'
-before_install:
-  # Log HTTP requests
-  - npm config set loglevel http
+  - '12'
 install:
-  - time npm install
+  - npm ci
