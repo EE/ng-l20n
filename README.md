@@ -3,6 +3,8 @@ ng-l20n [![Build Status](https://travis-ci.org/EE/ng-l20n.svg?branch=master)](ht
 
 An AngularJS module handling the l20n localization library.
 
+**ng-l20n is deprecated, switch to [Project Fluent](https://projectfluent.org/).**
+
 Usage
 -----
 
