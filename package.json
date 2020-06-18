@@ -19,7 +19,7 @@
     "index.js"
   ],
   "devDependencies": {
-    "angular": "1.7.9",
+    "angular": "1.8.0",
     "ee-l20n": "1.2.0",
     "eslint-config-mgol": "0.0.40",
     "grunt": "1.0.1",
