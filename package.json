@@ -22,7 +22,7 @@
     "angular": "1.8.0",
     "ee-l20n": "1.2.0",
     "eslint-config-mgol": "0.0.40",
-    "grunt": "1.0.1",
+    "grunt": "1.5.2",
     "grunt-cli": "1.2.0",
     "grunt-contrib-clean": "1.1.0",
     "grunt-contrib-copy": "1.0.0",
